@@ -153,6 +153,7 @@ import { useDynamicMapLayersWorker } from '@/components/map/hooks/useDynamicMapL
 import { useStaticMapLayersWorker } from '@/components/map/hooks/useStaticMapLayersWorker';
 import { applyDynamicLayerInterp } from '@/components/map/applyDynamicLayerInterp';
 import { filterShipsByActiveFilters } from '@/components/map/shipFilters';
+import { shipsWithIcons, trackedFlightsWithIcons } from '@/components/map/labelSubjects';
 import {
   ClusterCountLabels,
   TrackedFlightLabels,
@@ -1310,6 +1311,17 @@ const MaplibreViewer = ({
     meshtasticGeoJSON,
     aprsGeoJSON,
   } = interpolatedDynamicMapLayers;
+
+  // Label subjects follow the worker output (pre-interp, stable between
+  // rebuilds) so labels track the same data filters as the icons.
+  const trackedFlightsForLabels = useMemo(
+    () => trackedFlightsWithIcons(data?.tracked_flights, dynamicMapLayers.trackedFlightsGeoJSON),
+    [data?.tracked_flights, dynamicMapLayers.trackedFlightsGeoJSON],
+  );
+  const shipsForYachtLabels = useMemo(
+    () => shipsWithIcons(data?.ships, dynamicMapLayers.shipsGeoJSON),
+    [data?.ships, dynamicMapLayers.shipsGeoJSON],
+  );
 
   const staticMapLayers = useStaticMapLayersWorker(
     {
@@ -4478,9 +4490,9 @@ const MaplibreViewer = ({
         )}
 
         {/* HTML labels for tracked flights — color-matched, zoom-gated for non-HVA */}
-        {trackedFlightsGeoJSON && !selectedEntity && !isMapInteracting && data?.tracked_flights && (
+        {trackedFlightsGeoJSON && !selectedEntity && !isMapInteracting && trackedFlightsForLabels.length > 0 && (
           <TrackedFlightLabels
-            flights={data.tracked_flights}
+            flights={trackedFlightsForLabels}
             zoom={mapZoom}
             inView={inView}
             interpFlight={interpFlight}
@@ -4493,8 +4505,8 @@ const MaplibreViewer = ({
         )}
 
         {/* HTML labels for tracked yachts (pink owner names) */}
-        {shipsGeoJSON && activeLayers.ships_tracked_yachts && !selectedEntity && !isMapInteracting && data?.ships && (
-          <TrackedYachtLabels ships={data.ships} inView={inView} interpShip={interpShip} />
+        {shipsGeoJSON && activeLayers.ships_tracked_yachts && !selectedEntity && !isMapInteracting && shipsForYachtLabels.length > 0 && (
+          <TrackedYachtLabels ships={shipsForYachtLabels} inView={inView} interpShip={interpShip} />
         )}
 
         {/* HTML labels for earthquake cluster counts (hidden when any entity popup is active) */}
