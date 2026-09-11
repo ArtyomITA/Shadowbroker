@@ -666,7 +666,7 @@ ShadowBroker v0.9.7 is composed of three vertically-stacked planes — the **Ope
 | [Wikidata SPARQL](https://query.wikidata.org) | Head of state data | On-demand (cached 24h) | No |
 | [Wikipedia API](https://en.wikipedia.org/api) | Location summaries & aircraft images | On-demand (cached) | No |
 | [OSM Nominatim](https://nominatim.openstreetmap.org) | Place name geocoding (LOCATE bar) | On-demand | No |
-| [CARTO Basemaps](https://carto.com) | Dark map tiles | Continuous | No |
+| [CARTO Basemaps](https://carto.com) | Dark/light map tiles | Continuous | **Yes** (free, `CARTO_API_KEY`) |
 
 **Outbound privacy & audit (#348–#366):** Each self-hosted install uses its own backend IP and per-install User-Agent handle. See [docs/OUTBOUND_DATA.md](docs/OUTBOUND_DATA.md) for what contacts third parties, opt-in/env controls, and accepted tradeoffs (CCTV Referer, basemap CDN, LiveUAMap, etc.).
 
@@ -1173,6 +1173,7 @@ Then confirm authenticated `GET /api/wormhole/status` or `GET /api/settings/worm
 |---|---|---|
 | `BACKEND_URL` | `environment` in `docker-compose.yml`, or shell env | URL the Next.js server uses to proxy API calls to the backend. Defaults to `http://backend:8000`. **Runtime variable — no rebuild needed.** |
 | `BACKEND_PORT` | repo-root `.env` or shell env before `docker compose up` | Host port used to expose the backend API for local diagnostics. Defaults to `8000`; set `BACKEND_PORT=8001` if port 8000 is already in use. Does not change Docker-internal `BACKEND_URL`. |
+| `CARTO_API_KEY` | repo-root `.env` (passed to the frontend container by `docker-compose.yml`), or shell env | API key for the CARTO basemap tiles behind the DEFAULT dark/light map. CARTO now requires one; without it tiles still load but carry an "API KEY REQUIRED" watermark. Free at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey) (no account needed, 5M tiles/month). Served to the browser by the frontend-local `/api/basemap-config` route. **Runtime variable — no rebuild needed.** |
 
 **How it works:** The frontend proxies all `/api/*` requests through the Next.js server to `BACKEND_URL` using Docker's internal networking. Browsers only talk to port 3000; the backend host port is only for local diagnostics. For local dev without Docker, `BACKEND_URL` defaults to `http://localhost:8000`.
 

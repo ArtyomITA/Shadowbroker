@@ -83,6 +83,7 @@ Shadowbroker is **self-hosted**: each install uses its own backend egress IP. Th
 - **Code:** `frontend/src/components/map/styles/mapStyles.ts`, `frontend/public/map-style.json`
 - **Hosts:** `*.basemaps.cartocdn.com`, `demotiles.maplibre.org`
 - **Exposure:** **Browser** loads tiles (client IP + pan/zoom), not the backend
+- **API key:** CARTO requires a key for basemap tiles. `CARTO_API_KEY` is set on the frontend container and served to the browser by the frontend-local route `/api/basemap-config` (read at request time, never proxied to the backend). The browser then sends it to `*.basemaps.cartocdn.com` as a `?key=` query parameter on every tile request. Unset it to keep the previous unkeyed behavior (watermarked tiles).
 - **Mitigation:** Self-host raster tiles and point MapLibre `sources` at your tile server (operator choice; not required for core features)
 
 ---
