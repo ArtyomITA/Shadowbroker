@@ -1,14 +1,7 @@
 /**
- * MapLibre basemap styles backed by CARTO raster tiles.
- *
- * CARTO now requires an API key for its basemap tiles; unkeyed requests
- * return tiles stamped with an "API KEY REQUIRED" watermark. The key is
- * read at request time by /api/basemap-config (CARTO_API_KEY on the
- * frontend container) and threaded in here via `buildBasemapStyle`, so
- * prebuilt Docker images pick it up without a rebuild.
- *
- * With no key configured the styles are unchanged from before, so existing
- * deployments keep working exactly as they did (watermark included).
+ * MapLibre basemap styles on CARTO raster tiles. CARTO requires an API key
+ * (unkeyed tiles are watermarked); MaplibreViewer passes one from
+ * useBasemapConfig() via buildBasemapStyle().
  */
 
 export type BasemapTheme = 'dark' | 'light';
@@ -49,6 +42,5 @@ export function buildBasemapStyle(theme: BasemapTheme, cartoApiKey?: string | nu
   };
 }
 
-// Key-less defaults, kept for callers that do not need a CARTO key.
 export const darkStyle = buildBasemapStyle('dark');
 export const lightStyle = buildBasemapStyle('light');

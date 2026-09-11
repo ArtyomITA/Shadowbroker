@@ -1,15 +1,7 @@
 /**
- * Runtime basemap configuration for the browser map.
- *
- * CARTO_API_KEY is a plain server-side env var on the frontend container
- * (see docker-compose.yml). Like BACKEND_URL it is read at request time, so
- * operators running the prebuilt GHCR image can set it in .env without a
- * rebuild. A NEXT_PUBLIC_ var would be baked in at image build time and
- * therefore always empty for them.
- *
- * The key is not a secret in the usual sense — the browser sends it to
- * CARTO on every tile request — but it is only returned to same-origin
- * callers of this Next.js server, never proxied to the backend.
+ * Serves CARTO_API_KEY to the browser map. Read from the frontend container's
+ * environment at request time (like BACKEND_URL) so the prebuilt image needs
+ * no rebuild. Consumed by useBasemapConfig().
  */
 
 import { NextResponse } from 'next/server';
