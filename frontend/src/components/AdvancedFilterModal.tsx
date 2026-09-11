@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { motion } from '@/lib/motion';
 import { Search, X, Check, GripHorizontal } from 'lucide-react';
 
@@ -10,6 +10,11 @@ interface FilterField {
   options: string[];
   optionLabels?: Record<string, string>;
 }
+
+// Option lists come straight from live data (vessel names run to tens of
+// thousands); rendering every row as a button makes the dialog take seconds
+// to open, so only the head of the list is mounted until the search narrows it.
+export const MAX_RENDERED_OPTIONS = 300;
 
 interface AdvancedFilterModalProps {
   title: string;
@@ -55,8 +60,8 @@ export default function AdvancedFilterModal({
   const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Center on mount, clamped so it doesn't overlap the bottom status bar (~48px)
-  useEffect(() => {
+  // Center before first paint, clamped so it doesn't overlap the bottom status bar (~48px)
+  useLayoutEffect(() => {
     if (modalRef.current) {
       const rect = modalRef.current.getBoundingClientRect();
       const pad = 52; // status bar + small gap
@@ -153,6 +158,12 @@ export default function AdvancedFilterModal({
       return displayLabel.toLowerCase().includes(term);
     });
   }, [activeField, activeTab, searchTerms]);
+
+  const visibleOptions = useMemo(
+    () => filteredOptions.slice(0, MAX_RENDERED_OPTIONS),
+    [filteredOptions],
+  );
+  const hiddenCount = filteredOptions.length - visibleOptions.length;
 
   // Tailwind color map for dynamic classes
   const colorMap: Record<
@@ -355,7 +366,7 @@ export default function AdvancedFilterModal({
               </div>
             ) : (
               <div className="flex flex-col gap-px">
-                {filteredOptions.map((option) => {
+                {visibleOptions.map((option) => {
                   const isChecked = draft[activeTab]?.has(option);
                   return (
                     <button
@@ -383,6 +394,12 @@ export default function AdvancedFilterModal({
                     </button>
                   );
                 })}
+                {hiddenCount > 0 && (
+                  <div className="text-center py-3 text-[var(--text-muted)] text-[10px] tracking-widest">
+                    SHOWING {visibleOptions.length.toLocaleString()} OF{' '}
+                    {filteredOptions.length.toLocaleString()} — SEARCH TO NARROW
+                  </div>
+                )}
               </div>
             )}
           </div>
