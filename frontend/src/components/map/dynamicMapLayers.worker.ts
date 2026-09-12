@@ -3,6 +3,7 @@
 import { classifyAircraft } from '@/utils/aircraftClassification';
 import type { Flight, Ship, SigintSignal } from '@/types/dashboard';
 import type { FlightLayerConfig } from '@/components/map/geoJSONBuilders';
+import { filterShipsByActiveFilters } from '@/components/map/shipFilters';
 
 type BoundsTuple = [number, number, number, number];
 type FC = GeoJSON.FeatureCollection | null;
@@ -523,16 +524,7 @@ function applyFilters(activeFilters: Record<string, string[]> | undefined) {
   }
 
   // ── Ships ──
-  let ships = dynamicData.ships;
-  if (ships && (has('ship_name') || has('ship_type'))) {
-    const nameSet = has('ship_name') ? set('ship_name') : null;
-    const typeSet = has('ship_type') ? set('ship_type') : null;
-    ships = ships.filter((s: any) => {
-      if (nameSet && !nameSet.has(s.name)) return false;
-      if (typeSet && !typeSet.has(s.type)) return false;
-      return true;
-    });
-  }
+  const ships = dynamicData.ships ? filterShipsByActiveFilters(dynamicData.ships, f) : dynamicData.ships;
 
   return { commercial, private_, jets, military, tracked, ships };
 }
