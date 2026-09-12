@@ -23,6 +23,9 @@ interface AdvancedFilterModalProps {
   accentColorName: string; // tailwind name e.g. 'cyan'
   fields: FilterField[];
   activeFilters: Record<string, string[]>;
+  /** Layers this filter acts on. Omit to skip the layer-state UI entirely. */
+  layers?: { id: string; label: string; enabled: boolean }[];
+  onEnableLayer?: (id: string) => void;
   onApply: (filters: Record<string, string[]>) => void;
   onClose: () => void;
 }
@@ -34,6 +37,8 @@ export default function AdvancedFilterModal({
   accentColorName,
   fields,
   activeFilters,
+  layers,
+  onEnableLayer,
   onApply,
   onClose,
 }: AdvancedFilterModalProps) {
@@ -146,6 +151,12 @@ export default function AdvancedFilterModal({
   };
 
   const totalSelected = Object.values(draft).reduce((acc, s) => acc + s.size, 0);
+
+  // Option lists are built from live data, so a disabled layer means an empty
+  // list and nothing to search. Enabling from here refetches within a few
+  // seconds and the list fills in place.
+  const disabledLayers = layers?.filter((l) => !l.enabled) ?? [];
+  const anyLayerEnabled = !layers || layers.some((l) => l.enabled);
 
   const activeField = fields.find((f) => f.key === activeTab);
   const filteredOptions = useMemo(() => {
@@ -262,6 +273,34 @@ export default function AdvancedFilterModal({
             </button>
           </div>
 
+          {disabledLayers.length > 0 && (
+            <div
+              role="status"
+              className="px-4 py-2 flex flex-col gap-2 text-[9px] tracking-widest text-amber-400 bg-amber-500/10 border-b border-amber-500/30 flex-shrink-0"
+            >
+              <span>
+                {disabledLayers.map((l) => l.label.toUpperCase()).join(' + ')} LAYER
+                {disabledLayers.length > 1 ? 'S ARE' : ' IS'} OFF —{' '}
+                {anyLayerEnabled
+                  ? 'THIS FILTER ONLY AFFECTS THE ENABLED LAYERS'
+                  : 'THIS FILTER WILL NOT CHANGE THE MAP UNTIL A LAYER IS ENABLED'}
+              </span>
+              {onEnableLayer && (
+                <span className="flex flex-wrap gap-1.5">
+                  {disabledLayers.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => onEnableLayer(l.id)}
+                      className="border border-amber-500/50 bg-amber-500/15 hover:bg-amber-500/30 px-2 py-1 text-amber-300 transition-colors"
+                    >
+                      ENABLE {l.label.toUpperCase()}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* ── Tab Bar (for multi-field categories) ── */}
           {fields.length > 1 && (
             <div className="flex border-b border-[var(--border-primary)]/40 px-3 pt-2 gap-1 flex-shrink-0">
@@ -362,7 +401,11 @@ export default function AdvancedFilterModal({
           >
             {filteredOptions.length === 0 ? (
               <div className="text-center py-8 text-[var(--text-muted)] text-[10px] tracking-widest">
-                NO MATCHING RESULTS
+                {!anyLayerEnabled
+                  ? 'LAYER IS OFF — ENABLE IT ABOVE TO LOAD OPTIONS'
+                  : activeField && activeField.options.length === 0
+                    ? 'WAITING FOR DATA…'
+                    : 'NO MATCHING RESULTS'}
               </div>
             ) : (
               <div className="flex flex-col gap-px">
