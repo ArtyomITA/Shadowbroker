@@ -152,6 +152,7 @@ import { useImperativeSource } from '@/components/map/hooks/useImperativeSource'
 import { useDynamicMapLayersWorker } from '@/components/map/hooks/useDynamicMapLayersWorker';
 import { useStaticMapLayersWorker } from '@/components/map/hooks/useStaticMapLayersWorker';
 import { applyDynamicLayerInterp } from '@/components/map/applyDynamicLayerInterp';
+import { filterShipsByActiveFilters } from '@/components/map/shipFilters';
 import {
   ClusterCountLabels,
   TrackedFlightLabels,
@@ -1448,9 +1449,14 @@ const MaplibreViewer = ({
   const shipClusters = useClusterLabels(mapRef, 'ships-clusters-layer', shipsGeoJSON);
   const eqClusters = useClusterLabels(mapRef, 'eq-clusters-layer', earthquakesGeoJSON);
 
+  // Carriers bypass the worker, so apply the operator's vessel filters here.
+  const carrierShips = useMemo(
+    () => (activeLayers.ships_military ? filterShipsByActiveFilters(data?.ships, activeFilters) : []),
+    [activeLayers.ships_military, data?.ships, activeFilters],
+  );
   const carriersGeoJSON = useMemo(
-    () => (activeLayers.ships_military ? buildCarriersGeoJSON(data?.ships) : null),
-    [activeLayers.ships_military, data?.ships],
+    () => (activeLayers.ships_military ? buildCarriersGeoJSON(carrierShips) : null),
+    [activeLayers.ships_military, carrierShips],
   );
 
   // SAR anomaly pins (Mode B) + AOI watchbox circles.  AOIs render whenever
@@ -4482,8 +4488,8 @@ const MaplibreViewer = ({
         )}
 
         {/* HTML labels for carriers (orange names, with ESTIMATED badge for OSINT positions) */}
-        {carriersGeoJSON && !selectedEntity && !isMapInteracting && data?.ships && (
-          <CarrierLabels ships={data.ships} inView={inView} interpShip={interpShip} />
+        {carriersGeoJSON && !selectedEntity && !isMapInteracting && carrierShips.length > 0 && (
+          <CarrierLabels ships={carrierShips} inView={inView} interpShip={interpShip} />
         )}
 
         {/* HTML labels for tracked yachts (pink owner names) */}
