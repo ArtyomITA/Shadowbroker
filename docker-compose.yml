@@ -23,6 +23,7 @@ services:
       - GFW_EVENTS_LOOKBACK_DAYS=${GFW_EVENTS_LOOKBACK_DAYS:-7}
       - GFW_EVENTS_TIMEOUT_S=${GFW_EVENTS_TIMEOUT_S:-90}
       - WINDY_API_KEY=${WINDY_API_KEY:-}
+      - CARTO_API_KEY=${CARTO_API_KEY:-}
       - ADMIN_KEY=${ADMIN_KEY:-}
       - FINNHUB_API_KEY=${FINNHUB_API_KEY:-}
       - AIRFRAMES_API_KEY=${AIRFRAMES_API_KEY:-}
@@ -157,9 +158,6 @@ services:
       - BACKEND_URL=http://backend:8000
       # Lets the server-side proxy authenticate protected local-node API calls.
       - ADMIN_KEY=${ADMIN_KEY:-}
-      # CARTO basemap tiles require an API key (free at https://carto.com/basemaps/apikey).
-      # Read at request time via /api/basemap-config, so no image rebuild is needed.
-      - CARTO_API_KEY=${CARTO_API_KEY:-}
     depends_on:
       backend:
         condition: service_healthy

@@ -1130,6 +1130,7 @@ OPENSKY_CLIENT_SECRET=your_opensky_secret     # OAuth2 — paired with Client ID
 # Optional (enhances data quality)
 AIS_API_KEY=your_aisstream_key                # Maritime vessel tracking (aisstream.io) — ships layer empty without it
 LTA_ACCOUNT_KEY=your_lta_key                  # Singapore CCTV cameras
+CARTO_API_KEY=your_carto_key                  # CARTO basemap tiles — DEFAULT map shows an "API KEY REQUIRED" watermark without it (free: carto.com/basemaps/apikey)
 SHODAN_API_KEY=your_shodan_key                # Shodan device search overlay
 SH_CLIENT_ID=your_sentinel_hub_id             # Copernicus CDSE Sentinel Hub imagery
 SH_CLIENT_SECRET=your_sentinel_hub_secret     # Paired with Sentinel Hub Client ID
@@ -1173,7 +1174,6 @@ Then confirm authenticated `GET /api/wormhole/status` or `GET /api/settings/worm
 |---|---|---|
 | `BACKEND_URL` | `environment` in `docker-compose.yml`, or shell env | URL the Next.js server uses to proxy API calls to the backend. Defaults to `http://backend:8000`. **Runtime variable — no rebuild needed.** |
 | `BACKEND_PORT` | repo-root `.env` or shell env before `docker compose up` | Host port used to expose the backend API for local diagnostics. Defaults to `8000`; set `BACKEND_PORT=8001` if port 8000 is already in use. Does not change Docker-internal `BACKEND_URL`. |
-| `CARTO_API_KEY` | repo-root `.env` (passed to the frontend container by `docker-compose.yml`), or shell env | API key for the CARTO basemap tiles behind the DEFAULT dark/light map. CARTO now requires one; without it tiles still load but carry an "API KEY REQUIRED" watermark. Free at [carto.com/basemaps/apikey](https://carto.com/basemaps/apikey) (no account needed, 5M tiles/month). Served to the browser by the frontend-local `/api/basemap-config` route. **Runtime variable — no rebuild needed.** |
 
 **How it works:** The frontend proxies all `/api/*` requests through the Next.js server to `BACKEND_URL` using Docker's internal networking. Browsers only talk to port 3000; the backend host port is only for local diagnostics. For local dev without Docker, `BACKEND_URL` defaults to `http://localhost:8000`.
 

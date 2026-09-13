@@ -1889,8 +1889,8 @@ const MaplibreViewer = ({
       className={`relative h-full w-full z-0 isolate ${selectedEntity && ['region_dossier', 'gdelt', 'liveuamap', 'news', 'telegram_osint', 'gt_risk'].includes(selectedEntity.type) ? 'map-focus-active' : ''}`}
       style={pinPlacementMode || sarAoiDropMode ? { cursor: 'crosshair' } : undefined}
     >
-      {/* Wait for /api/basemap-config so the first style load already carries the CARTO key
-          (avoids a burst of unkeyed, watermarked tile requests followed by a style swap). */}
+      {/* Wait for /api/basemap-config so the first style load already carries the CARTO key.
+          Bounded: useBasemapConfig fails open to the unkeyed style after a short timeout. */}
       {basemapConfigLoaded && (
       <Map
         ref={mapRef}
