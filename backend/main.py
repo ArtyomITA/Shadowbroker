@@ -9072,7 +9072,7 @@ async def api_sentinel_tile(request: Request):
 # ---------------------------------------------------------------------------
 # API Settings â€” key registry & management
 # ---------------------------------------------------------------------------
-from services.api_settings import get_api_keys, get_env_path_info
+from services.api_settings import get_api_keys, get_basemap_config, get_env_path_info
 from services.shodan_connector import (
     ShodanConnectorError,
     count_shodan,
@@ -9109,6 +9109,12 @@ async def api_get_keys(request: Request):
 @limiter.limit("30/minute")
 async def api_get_keys_meta(request: Request):
     return get_env_path_info()
+
+
+@app.get("/api/basemap-config")
+@limiter.limit("60/minute")
+async def api_basemap_config(request: Request):
+    return get_basemap_config()
 
 
 @app.get("/api/tools/shodan/status", dependencies=[Depends(require_local_operator)])

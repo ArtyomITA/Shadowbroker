@@ -15,7 +15,8 @@ import Map, {
 } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { computeNightPolygon } from '@/utils/solarTerminator';
-import { darkStyle, lightStyle } from '@/components/map/styles/mapStyles';
+import { buildBasemapStyle } from '@/components/map/styles/mapStyles';
+import { useBasemapConfig } from '@/hooks/useBasemapConfig';
 import maplibregl from 'maplibre-gl';
 import { AlertTriangle, Radio, Activity, Play, Satellite, ExternalLink, Info } from 'lucide-react';
 import WikiImage from '@/components/WikiImage';
@@ -428,9 +429,11 @@ const MaplibreViewer = ({
   const mapInitRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const { theme } = useTheme();
+  const { cartoApiKey, loaded: basemapConfigLoaded } = useBasemapConfig();
   const mapThemeStyle = useMemo<maplibregl.StyleSpecification>(
-    () => (theme === 'light' ? lightStyle : darkStyle) as maplibregl.StyleSpecification,
-    [theme],
+    () =>
+      buildBasemapStyle(theme === 'light' ? 'light' : 'dark', cartoApiKey) as maplibregl.StyleSpecification,
+    [theme, cartoApiKey],
   );
 
   const initialViewState = useMemo<ViewState>(
@@ -1898,6 +1901,9 @@ const MaplibreViewer = ({
       className={`relative h-full w-full z-0 isolate ${selectedEntity && ['region_dossier', 'gdelt', 'liveuamap', 'news', 'telegram_osint', 'gt_risk'].includes(selectedEntity.type) ? 'map-focus-active' : ''}`}
       style={pinPlacementMode || sarAoiDropMode ? { cursor: 'crosshair' } : undefined}
     >
+      {/* Wait for /api/basemap-config so the first style load already carries the CARTO key.
+          Bounded: useBasemapConfig fails open to the unkeyed style after a short timeout. */}
+      {basemapConfigLoaded && (
       <Map
         ref={mapRef}
         reuseMaps
@@ -6670,6 +6676,7 @@ const MaplibreViewer = ({
 
         <MeasurementLayers measurePoints={measurePoints} />
       </Map>
+      )}
     </div>
   );
 };
