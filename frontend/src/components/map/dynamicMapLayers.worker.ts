@@ -4,6 +4,7 @@ import { classifyAircraft } from '@/utils/aircraftClassification';
 import type { Flight, Ship, SigintSignal } from '@/types/dashboard';
 import type { FlightLayerConfig } from '@/components/map/geoJSONBuilders';
 import { filterShipsByActiveFilters } from '@/components/map/shipFilters';
+import { shipFeatureId, trackedFlightFeatureId } from '@/components/map/featureIds';
 
 type BoundsTuple = [number, number, number, number];
 type FC = GeoJSON.FeatureCollection | null;
@@ -306,7 +307,7 @@ function buildTrackedFlightsGeoJSONWorker(
     features.push({
       type: 'Feature',
       properties: {
-        id: f.icao24 || i,
+        id: trackedFlightFeatureId(f, `tracked-${i}`),
         type: 'tracked_flight',
         callsign: String(displayName),
         rotation,
@@ -375,7 +376,7 @@ function buildShipsGeoJSONWorker(
     features.push({
       type: 'Feature',
       properties: {
-        id: s.mmsi || s.name || `ship-${i}`,
+        id: shipFeatureId(s, `ship-${i}`),
         type: 'ship',
         name: s.name,
         rotation,
