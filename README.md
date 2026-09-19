@@ -636,6 +636,7 @@ ShadowBroker v0.9.7 is composed of three vertically-stacked planes — the **Ope
 | [DigiTraffic](https://www.digitraffic.fi) | European rail positions | ~60s | No |
 | [Global Fishing Watch](https://globalfishingwatch.org) | Fishing vessel activity events | ~1hr | **Yes** (`GFW_API_TOKEN`) |
 | [Telegram public previews](https://t.me/s) | War/OSINT channel posts (`telegram_osint`) | ~1hr | No (optional `TELEGRAM_OSINT_CHANNELS`) |
+| [Xquik](https://docs.xquik.com) | Public X posts from an operator-defined search | ~30min | **Yes** (opt-in) |
 | Transport for London, NYC DOT, TxDOT | CCTV cameras (UK, US) | ~10min | No |
 | Caltrans, WSDOT, GDOT, IDOT, MDOT | CCTV cameras (5 US states) | ~10min | No |
 | Spain DGT, Madrid City | CCTV cameras (Spain) | ~10min | No |
@@ -665,7 +666,7 @@ ShadowBroker v0.9.7 is composed of three vertically-stacked planes — the **Ope
 | [Wikidata SPARQL](https://query.wikidata.org) | Head of state data | On-demand (cached 24h) | No |
 | [Wikipedia API](https://en.wikipedia.org/api) | Location summaries & aircraft images | On-demand (cached) | No |
 | [OSM Nominatim](https://nominatim.openstreetmap.org) | Place name geocoding (LOCATE bar) | On-demand | No |
-| [CARTO Basemaps](https://carto.com) | Dark map tiles | Continuous | No |
+| [CARTO Basemaps](https://carto.com) | Dark/light map tiles | Continuous | **Yes** (free, `CARTO_API_KEY`) |
 
 **Outbound privacy & audit (#348–#366):** Each self-hosted install uses its own backend IP and per-install User-Agent handle. See [docs/OUTBOUND_DATA.md](docs/OUTBOUND_DATA.md) for what contacts third parties, opt-in/env controls, and accepted tradeoffs (CCTV Referer, basemap CDN, LiveUAMap, etc.).
 
@@ -1129,6 +1130,7 @@ OPENSKY_CLIENT_SECRET=your_opensky_secret     # OAuth2 — paired with Client ID
 # Optional (enhances data quality)
 AIS_API_KEY=your_aisstream_key                # Maritime vessel tracking (aisstream.io) — ships layer empty without it
 LTA_ACCOUNT_KEY=your_lta_key                  # Singapore CCTV cameras
+CARTO_API_KEY=your_carto_key                  # CARTO basemap tiles — DEFAULT map shows an "API KEY REQUIRED" watermark without it (free: carto.com/basemaps/apikey)
 SHODAN_API_KEY=your_shodan_key                # Shodan device search overlay
 SH_CLIENT_ID=your_sentinel_hub_id             # Copernicus CDSE Sentinel Hub imagery
 SH_CLIENT_SECRET=your_sentinel_hub_secret     # Paired with Sentinel Hub Client ID
@@ -1141,6 +1143,9 @@ OPENCLAW_ACCESS_TIER=restricted               # OpenClaw agent tier: "restricted
 GFW_API_TOKEN=your_gfw_token                  # Global Fishing Watch — fishing_activity layer (Settings → Maritime)
 TELEGRAM_OSINT_ENABLED=true                   # Telegram OSINT layer (default on)
 TELEGRAM_OSINT_CHANNELS=osintdefender,...     # Comma-separated public channel slugs (see .env.example)
+XQUIK_ENABLED=false                           # Opt-in X search enrichment
+XQUIK_API_KEY=                                # Server-side API key
+XQUIK_SEARCH_QUERY=                           # Operator-defined search query
 
 # Private-lane privacy-core pinning (required when Arti or RNS is enabled)
 PRIVACY_CORE_MIN_VERSION=0.1.0

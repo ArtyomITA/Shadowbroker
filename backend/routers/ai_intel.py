@@ -158,8 +158,8 @@ class LayerUpdate(BaseModel):
 
 class InjectRequest(BaseModel):
     layer: str
-    items: list[dict[str, Any]] = Field(..., max_length=200)
-    mode: str = "append"  # "append" or "replace"
+    items: list[Any] = Field(..., max_length=200)
+    mode: str = "append"  # validated by inject_layer_data
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +415,50 @@ async def api_refresh_layer_feed(request: Request, layer_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Native map layer overrides — additive, transient, agent-driven.
+#
+# These are the DATA LAYERS toggles, not the pin layers above. An override
+# switches an overlay on without touching the operator's own toggle state, and
+# lapses on its own after the TTL. Agents holding an overlay open should re-PUT
+# on their refresh tick rather than sending a long TTL.
+# ---------------------------------------------------------------------------
+
+class LayerOverrideUpdate(BaseModel):
+    layers: dict[str, bool]
+    ttl_seconds: float = 300.0
+
+
+@router.put("/api/ai/layer-overrides", dependencies=[Depends(require_openclaw_or_local)])
+@limiter.limit("30/minute")
+async def put_layer_overrides(request: Request, body: LayerOverrideUpdate):
+    """Replace the override map. Returns which keys were accepted and ignored."""
+    from services.fetchers._store import set_layer_overrides
+
+    accepted = set_layer_overrides(body.layers, body.ttl_seconds)
+    ignored = sorted(set(body.layers) - set(accepted))
+    return {"ok": True, "overrides": accepted, "ignored": ignored}
+
+
+@router.get("/api/ai/layer-overrides", dependencies=[Depends(require_openclaw_or_local)])
+@limiter.limit("60/minute")
+async def read_layer_overrides(request: Request):
+    """Return the overrides that are currently live."""
+    from services.fetchers._store import get_layer_overrides
+
+    return {"ok": True, "overrides": get_layer_overrides()}
+
+
+@router.delete("/api/ai/layer-overrides", dependencies=[Depends(require_openclaw_or_local)])
+@limiter.limit("30/minute")
+async def delete_layer_overrides(request: Request):
+    """Drop all overrides, restoring the operator's own layer state."""
+    from services.fetchers._store import clear_layer_overrides
+
+    clear_layer_overrides()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Agent Actions endpoint — frontend polls this for UI commands from the agent
 # ---------------------------------------------------------------------------
 
@@ -647,39 +691,15 @@ INJECTABLE_LAYERS = {
 @router.post("/api/ai/inject", dependencies=[Depends(require_openclaw_or_local)])
 @limiter.limit("30/minute")
 async def inject_data(request: Request, body: InjectRequest):
-    """Inject custom data into ANY native ShadowBroker layer.
-    Items appear as real telemetry alongside automated feeds.
-    Tagged with _source='user:openclaw' so they can be filtered/removed."""
-    from services.fetchers._store import latest_data, _data_lock, bump_data_version
+    """Inject custom data through the shared validated layer helper."""
+    from services.ai_intel_store import inject_layer_data
 
-    if body.layer not in INJECTABLE_LAYERS:
-        raise HTTPException(400, f"Layer '{body.layer}' is not injectable. "
-                            f"Valid layers: {sorted(INJECTABLE_LAYERS)}")
+    result = inject_layer_data(body.layer, body.items, mode=body.mode)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("detail", "invalid injection payload"))
 
-    now = time.time()
-    items = body.items[:200]  # cap at 200
-
-    # Tag every injected item
-    for item in items:
-        item["_injected"] = True
-        item["_source"] = "user:openclaw"
-        item["_injected_at"] = now
-
-    with _data_lock:
-        existing = list(latest_data.get(body.layer) or [])
-        if body.mode == "replace":
-            existing = [x for x in existing if not x.get("_injected")]
-        existing.extend(items)
-        latest_data[body.layer] = existing
-        bump_data_version()
-
-    total = len(latest_data.get(body.layer, []))
-    return {
-        "ok": True,
-        "layer": body.layer,
-        "injected": len(items),
-        "total": total,
-    }
+    total = len(_latest_data.get(body.layer, []))
+    return {**result, "total": total}
 
 
 @router.delete("/api/ai/inject", dependencies=[Depends(require_openclaw_or_local)])

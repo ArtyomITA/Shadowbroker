@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from json import JSONDecodeError
 
-APP_VERSION = "0.9.83"
+APP_VERSION = "0.9.84"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -168,6 +168,7 @@ def _gate_privileged_access_status_snapshot_local() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 _SECRET_VARS = [
     "AIS_API_KEY",
+    "AISHUB_USERNAME",
     "OPENSKY_CLIENT_ID",
     "OPENSKY_CLIENT_SECRET",
     "LTA_ACCOUNT_KEY",
@@ -2762,13 +2763,15 @@ async def lifespan(app: FastAPI):
         # in _scheduler_loop, so we do NOT call it again in the preload thread.
         start_carrier_tracker()
 
-        # Start SIGINT grid eagerly â€” APRS-IS TCP + Meshtastic MQTT connections
-        # take a few seconds to handshake and start receiving packets. By starting
-        # now, the bridges are already accumulating signals by the time the first
-        # fetch_sigint() reads them during the preload cycle.
-        from services.sigint_bridge import sigint_grid
+        # Route startup through the bounded production APRS bridge. The old
+        # SIGINTGrid.start() also opened an unbounded public APRS-IS feed.
+        from services.fetchers._store import is_any_active
+        from services.fetchers.sigint import _reconcile_sigint_bridges
 
-        sigint_grid.start()
+        _reconcile_sigint_bridges(
+            aprs_requested=is_any_active("sigint_aprs"),
+            mesh_requested=is_any_active("sigint_meshtastic"),
+        )
 
     # Start Reticulum bridge (optional)
     try:
@@ -2900,7 +2903,11 @@ async def lifespan(app: FastAPI):
         stop_scheduler()
         stop_carrier_tracker()
         try:
+            from services.aprs_is_bridge import aprs_is_bridge
+            from services.sigint_bridge import sigint_grid
+
             sigint_grid.stop()
+            aprs_is_bridge.stop()
         except Exception:
             pass
     if not _MESH_ONLY:
@@ -4032,6 +4039,7 @@ async def update_layers(update: LayerUpdate, request: Request):
 
     # Start/stop SIGINT bridges on transition
     from services.sigint_bridge import sigint_grid
+    from services.aprs_is_bridge import aprs_is_bridge
 
     if old_mesh and not new_mesh:
         try:
@@ -4062,15 +4070,20 @@ async def update_layers(update: LayerUpdate, request: Request):
             )
 
     if old_aprs and not new_aprs:
-        sigint_grid.aprs.stop()
-        logger.info("APRS bridge stopped (layer disabled)")
+        aprs_is_bridge.reconcile(False)
+        logger.info("Bounded APRS-IS bridge stopped (layer disabled)")
     elif not old_aprs and new_aprs:
-        sigint_grid.aprs.start()
-        logger.info("APRS bridge started (layer enabled)")
+        aprs_is_bridge.reconcile(True)
+        logger.info("Bounded APRS-IS bridge reconciled (layer enabled)")
 
     if not old_viirs and new_viirs:
         _queue_viirs_change_refresh()
         logger.info("VIIRS change refresh queued (layer enabled)")
+
+    if old_mesh != new_mesh or old_aprs != new_aprs:
+        from services.fetchers.sigint import fetch_sigint
+
+        threading.Thread(target=fetch_sigint, daemon=True, name="sigint-layer-refresh").start()
 
     refresh_newly_enabled_layers(layers_before)
 
@@ -9064,7 +9077,7 @@ async def api_sentinel_tile(request: Request):
 # ---------------------------------------------------------------------------
 # API Settings â€” key registry & management
 # ---------------------------------------------------------------------------
-from services.api_settings import get_api_keys, get_env_path_info
+from services.api_settings import get_api_keys, get_basemap_config, get_env_path_info
 from services.shodan_connector import (
     ShodanConnectorError,
     count_shodan,
@@ -9101,6 +9114,12 @@ async def api_get_keys(request: Request):
 @limiter.limit("30/minute")
 async def api_get_keys_meta(request: Request):
     return get_env_path_info()
+
+
+@app.get("/api/basemap-config")
+@limiter.limit("60/minute")
+async def api_basemap_config(request: Request):
+    return get_basemap_config()
 
 
 @app.get("/api/tools/shodan/status", dependencies=[Depends(require_local_operator)])

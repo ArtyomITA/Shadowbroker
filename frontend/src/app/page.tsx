@@ -20,6 +20,7 @@ import { endInfonetTerminalSession } from '@/lib/infonetTerminalSession';
 import ShodanPanel from '@/components/ShodanPanel';
 import ReconPanel from '@/components/ReconPanel';
 import ScmPanel from '@/components/ScmPanel';
+import CyberThreatPanel from '@/components/CyberThreatPanel';
 import EntityGraphPanel from '@/components/EntityGraphPanel';
 import { isEntityGraphEligible } from '@/lib/entityGraph';
 import AIIntelPanel from '@/components/AIIntelPanel';
@@ -29,6 +30,17 @@ import OnboardingModal, { useOnboarding } from '@/components/OnboardingModal';
 import ChangelogModal, { useChangelog } from '@/components/ChangelogModal';
 import StartupWarmupModal, { useStartupWarmupNotice } from '@/components/StartupWarmupModal';
 import type { ActiveLayers, KiwiSDR, Scanner, SelectedEntity } from '@/types/dashboard';
+import {
+  getDefaultActiveLayers,
+  getDefaultMapStyle,
+  loadActiveFilters,
+  loadActiveLayers,
+  loadMapStyle,
+  saveActiveFilters,
+  saveActiveLayers,
+  saveMapStyle,
+  type MapStyle,
+} from '@/lib/layerPreferences';
 import type { ShodanSearchMatch } from '@/types/shodan';
 import { API_BASE } from '@/lib/api';
 import { useDataPolling, LAYER_TOGGLE_EVENT } from '@/hooks/useDataPolling';
@@ -69,7 +81,6 @@ const SettingsPanel = dynamic(() => import('@/components/SettingsPanel'), { ssr:
 const MeshTerminal = dynamic(() => import('@/components/MeshTerminal'), { ssr: false });
 const InfonetTerminal = dynamic(() => import('@/components/InfonetTerminal'), { ssr: false });
 
-const ACTIVE_LAYERS_STORAGE_KEY = 'sb_active_layers_v1';
 const ACTIVE_LAYERS_CHANNEL = 'shadowbroker-active-layers-v1';
 
 // LocateBar and SentinelInfoModal extracted to page-local modules (Sprint 4B)
@@ -185,84 +196,62 @@ function DashboardCore() {
     });
   }, []);
 
-  const [activeLayers, setActiveLayers] = useState<ActiveLayers>({
-    // Aircraft — all ON
-    flights: true,
-    private: true,
-    jets: true,
-    military: true,
-    tracked: true,
-    gps_jamming: true,
-    // Maritime — all ON
-    ships_military: true,
-    ships_cargo: true,
-    ships_civilian: true,
-    ships_passenger: true,
-    ships_tracked_yachts: true,
-    fishing_activity: true,
-    // Space — only satellites
-    satellites: true,
-    gibs_imagery: false,
-    highres_satellite: false,
-    sentinel_hub: false,
-    viirs_nightlights: false,
-    road_corridor_trends: false,
-    malware_c2: false,
-    submarine_cables: false,
-    scm_suppliers: false,
-    cyber_threats: false,
-    telegram_osint: true,
-    // Hazards — no fire, rest ON
-    earthquakes: true,
-    firms: false,
-    ukraine_alerts: true,
-    weather_alerts: true,
-    volcanoes: true,
-    air_quality: true,
-    // Infrastructure — military bases + internet outages only
-    cctv: false,
-    datacenters: false,
-    internet_outages: true,
-    power_plants: false,
-    military_bases: true,
-    trains: false,
-    // SIGINT — all ON except HF digital spots
-    kiwisdr: true,
-    psk_reporter: false,
-    satnogs: true,
-    tinygs: true,
-    scanners: true,
-    sigint_meshtastic: true,
-    sigint_aprs: true,
-    // Overlays
-    ukraine_frontline: true,
-    global_incidents: true,
-    // Financial news HQ pins — opt-in, off by default.
-    finnhub_news: false,
-    day_night: true,
-    correlations: true,
-    contradictions: true,
-    uap_sightings: true,
-    // Biosurveillance
-    wastewater: true,
-    // CrowdThreat is operator opt-in only.
-    crowdthreat: false,
-    gt_risk: false,
-    // Shodan
-    shodan_overlay: false,
-    // AI Intel
-    ai_intel: true,
-    // SAR (Synthetic Aperture Radar)
-    sar: true,
-  });
+  const [activeLayers, setActiveLayers] = useState<ActiveLayers>(getDefaultActiveLayers);
+  // Backend-driven layer overrides. Additive on top of activeLayers, never
+  // persisted and never pushed back — the operator's own toggles stay theirs.
+  const [layerOverrides, setLayerOverrides] = useState<Partial<ActiveLayers>>({});
+  const [activeStyle, setActiveStyle] = useState<MapStyle>(getDefaultMapStyle);
+  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  const [layerPrefsHydrated, setLayerPrefsHydrated] = useState(false);
+
+  // SSR/hydration cannot read localStorage in useState — load saved UI prefs after mount.
+  useEffect(() => {
+    setActiveLayers(loadActiveLayers());
+    setActiveStyle(loadMapStyle());
+    setActiveFilters(loadActiveFilters());
+    setLayerPrefsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!layerPrefsHydrated) return;
+    saveActiveLayers(activeLayers);
+  }, [activeLayers, layerPrefsHydrated]);
+
+  useEffect(() => {
+    if (!layerPrefsHydrated) return;
+    saveMapStyle(activeStyle);
+  }, [activeStyle, layerPrefsHydrated]);
+
+  useEffect(() => {
+    if (!layerPrefsHydrated) return;
+    saveActiveFilters(activeFilters);
+  }, [activeFilters, layerPrefsHydrated]);
+
+  const resetActiveLayers = useCallback(() => {
+    setActiveLayers(getDefaultActiveLayers());
+  }, []);
+  const enableLayers = useCallback((keys: (keyof ActiveLayers)[]) => {
+    setActiveLayers((prev) => {
+      const next = { ...prev };
+      for (const key of keys) next[key] = true;
+      return next;
+    });
+  }, []);
+  // Vergilius: cross-window sync (dashboard iframe inside Odysseus + pop-out). Persistence is
+  // upstream's layerPreferences; this only mirrors live toggles between open windows.
   const layerSyncIdRef = useRef(`sb-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const layerChannelRef = useRef<BroadcastChannel | null>(null);
   const suppressLayerBroadcastRef = useRef(false);
-  const [layerSyncReady, setLayerSyncReady] = useState(false);
 
   useEffect(() => {
-    const applySharedLayers = (candidate: unknown) => {
+    if (!('BroadcastChannel' in window)) return;
+    const channel = new BroadcastChannel(ACTIVE_LAYERS_CHANNEL);
+    layerChannelRef.current = channel;
+    channel.onmessage = (event: MessageEvent<{ source?: string; layers?: unknown }>) => {
+      if (!event.data || event.data.source === layerSyncIdRef.current) return;
+      const candidate = event.data.layers;
       if (!candidate || typeof candidate !== 'object') return;
+      suppressLayerBroadcastRef.current = true;
       setActiveLayers((previous) => {
         const next = { ...previous };
         for (const [key, value] of Object.entries(candidate as Record<string, unknown>)) {
@@ -273,49 +262,20 @@ function DashboardCore() {
         return next;
       });
     };
-
-    try {
-      const saved = localStorage.getItem(ACTIVE_LAYERS_STORAGE_KEY);
-      if (saved) applySharedLayers(JSON.parse(saved));
-    } catch {
-      // Corrupt or unavailable storage must never block the dashboard.
-    }
-
-    if ('BroadcastChannel' in window) {
-      const channel = new BroadcastChannel(ACTIVE_LAYERS_CHANNEL);
-      layerChannelRef.current = channel;
-      channel.onmessage = (event: MessageEvent<{ source?: string; layers?: unknown }>) => {
-        if (!event.data || event.data.source === layerSyncIdRef.current) return;
-        suppressLayerBroadcastRef.current = true;
-        applySharedLayers(event.data.layers);
-      };
-    }
-
-    // Let a restored state commit before the persistence effect can publish it.
-    const readyFrame = requestAnimationFrame(() => setLayerSyncReady(true));
     return () => {
-      cancelAnimationFrame(readyFrame);
-      layerChannelRef.current?.close();
+      channel.close();
       layerChannelRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    if (!layerSyncReady) return;
-    try {
-      localStorage.setItem(ACTIVE_LAYERS_STORAGE_KEY, JSON.stringify(activeLayers));
-    } catch {
-      // Storage is an optimisation; backend layer sync still works without it.
-    }
+    if (!layerPrefsHydrated) return;
     if (suppressLayerBroadcastRef.current) {
       suppressLayerBroadcastRef.current = false;
       return;
     }
-    layerChannelRef.current?.postMessage({
-      source: layerSyncIdRef.current,
-      layers: activeLayers,
-    });
-  }, [activeLayers, layerSyncReady]);
+    layerChannelRef.current?.postMessage({ source: layerSyncIdRef.current, layers: activeLayers });
+  }, [activeLayers, layerPrefsHydrated]);
   const regionLat =
     selectedEntity?.type === 'region_dossier' ? selectedEntity.extra?.lat : undefined;
   const regionLng =
@@ -392,7 +352,7 @@ function DashboardCore() {
   const layersTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLayerSyncRef = useRef(false);
   useEffect(() => {
-    if (!secondaryBootReady) return;
+    if (!secondaryBootReady || !layerPrefsHydrated) return;
     const syncLayers = (triggerRefetch: boolean) =>
       fetch(`${API_BASE}/api/layers`, {
         method: 'POST',
@@ -416,7 +376,28 @@ function DashboardCore() {
     return () => {
       if (layersTimerRef.current) clearTimeout(layersTimerRef.current);
     };
-  }, [activeLayers, secondaryBootReady]);
+  }, [activeLayers, secondaryBootReady, layerPrefsHydrated]);
+
+  // Poll for backend layer overrides so an agent can switch an overlay on
+  // without the operator reloading. Overrides carry a TTL server-side, so a
+  // missed poll self-corrects and a dropped backend just lets them lapse.
+  useEffect(() => {
+    if (!secondaryBootReady) return;
+    let cancelled = false;
+    const pollOverrides = () =>
+      fetch(`${API_BASE}/api/layers`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (!cancelled) setLayerOverrides(d?.overrides ?? {});
+        })
+        .catch(() => {});
+    void pollOverrides();
+    const id = setInterval(pollOverrides, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [secondaryBootReady]);
 
   // Left panel accordion state
   const [leftDataMinimized, setLeftDataMinimized] = useState(true);
@@ -499,8 +480,6 @@ function DashboardCore() {
     bloom: true,
   });
 
-  const [activeStyle, setActiveStyle] = useState('DEFAULT');
-
   const memoizedEffects = useMemo(
     () => ({ ...effects, bloom: effects.bloom && activeStyle !== 'DEFAULT', style: activeStyle }),
     [effects, activeStyle],
@@ -509,6 +488,8 @@ function DashboardCore() {
   const [flyToLocation, setFlyToLocation] = useState<{
     lat: number;
     lng: number;
+    zoom?: number;
+    bounds?: [number, number, number, number];
     ts: number;
   } | null>(null);
 
@@ -547,16 +528,17 @@ function DashboardCore() {
   const cycleStyle = () => {
     setActiveStyle((prev) => {
       const idx = stylesList.indexOf(prev);
-      const next = stylesList[(idx + 1) % stylesList.length];
+      const next = stylesList[(idx + 1) % stylesList.length] as MapStyle;
       // Auto-toggle High-Res Satellite layer with SATELLITE style
       setActiveLayers((l) => ({ ...l, highres_satellite: next === 'SATELLITE' }));
       return next;
     });
   };
 
-  const [activeFilters, setActiveFilters] = useState<Record<string, string[]>>({});
+  // Overrides merge last so they win over both the operator's toggles and the
+  // first-paint suppressions below.
   const firstPaintActiveLayers = useMemo<ActiveLayers>(() => {
-    if (secondaryBootReady) return activeLayers;
+    if (secondaryBootReady) return { ...activeLayers, ...layerOverrides };
     return {
       ...activeLayers,
       cctv: false,
@@ -570,8 +552,9 @@ function DashboardCore() {
       tinygs: false,
       datacenters: false,
       power_plants: false,
+      ...layerOverrides,
     };
-  }, [activeLayers, secondaryBootReady]);
+  }, [activeLayers, layerOverrides, secondaryBootReady]);
   // Agent fly_to handler (sar_focus_aoi etc.) — wired here now that
   // setFlyToLocation is in scope.  show_image is routed through
   // useAgentActions at the top of Dashboard.
@@ -631,8 +614,8 @@ function DashboardCore() {
 
   useAgentActions(
     handleMapRightClick,
-    ({ lat, lng }) => {
-      setFlyToLocation({ lat, lng, ts: Date.now() });
+    ({ lat, lng, zoom }) => {
+      setFlyToLocation({ lat, lng, zoom, ts: Date.now() });
     },
     secondaryBootReady,
     handleAgentSetLayers,
@@ -746,13 +729,14 @@ function DashboardCore() {
                 {secondaryBootReady ? (
                   <ErrorBoundary name="WorldviewLeftPanel">
                     <WorldviewLeftPanel
-                      activeLayers={activeLayers}
+                      activeLayers={firstPaintActiveLayers}
                       setActiveLayers={setActiveLayers}
                       onApplyPreset={(names) =>
                         names
                           ? handleAgentSetLayers({ on: names, off: [], solo: true, reset: false })
                           : handleAgentSetLayers({ on: [], off: [], solo: false, reset: true })
                       }
+                      onResetLayers={resetActiveLayers}
                       shodanResultCount={shodanResults.length}
                       onSettingsClick={() => setSettingsOpen(true)}
                       onLegendClick={() => setLegendOpen(true)}
@@ -840,6 +824,7 @@ function DashboardCore() {
                 <div className="contents" style={{ direction: 'ltr' }}>
                   <ReconPanel />
                   <ScmPanel layerEnabled={activeLayers.scm_suppliers} />
+                  <CyberThreatPanel layerEnabled={activeLayers.cyber_threats} />
                 </div>
               )}
 
@@ -944,6 +929,8 @@ function DashboardCore() {
                   <FilterPanel
                     activeFilters={activeFilters}
                     setActiveFilters={setActiveFilters}
+                    activeLayers={activeLayers}
+                    onEnableLayers={enableLayers}
                   />
                 </ErrorBoundary>
               </div>
@@ -974,7 +961,7 @@ function DashboardCore() {
               >
                 {/* LOCATE BAR — search by coordinates or place name */}
                 <LocateBar
-                  onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })}
+                  onLocate={(lat, lng, bounds) => setFlyToLocation({ lat, lng, bounds, ts: Date.now() })}
                   onOpenChange={setLocateBarOpen}
                 />
 
@@ -1141,7 +1128,7 @@ function DashboardCore() {
         {/* AIS UPSTREAM OUTAGE BANNER — renders only when AIS is configured
             but the WebSocket upstream is unreachable. Tells users the empty
             ocean isn't their fault. */}
-        <AisUpstreamBanner />
+        <AisUpstreamBanner onOpenApiKeys={() => setSettingsOpen(true)} />
 
         {/* ONBOARDING MODAL */}
         {showOnboarding && (
