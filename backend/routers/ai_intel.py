@@ -1652,11 +1652,17 @@ async def agent_tool_manifest(request: Request):
     An agent loads these as its available tools on first connect.
     Each tool has: name, description, parameters (with types), and examples.
     """
-    from services.openclaw_channel import READ_COMMANDS, WRITE_COMMANDS
+    from services.openclaw_channel import READ_COMMANDS, VIEW_COMMANDS, WRITE_COMMANDS
     from services.config import get_settings
 
     access_tier = str(get_settings().OPENCLAW_ACCESS_TIER or "restricted").strip().lower()
-    available_commands = sorted(READ_COMMANDS | WRITE_COMMANDS) if access_tier == "full" else sorted(READ_COMMANDS)
+    # View commands (map_focus, set_layers, highlight) only change what the operator is
+    # looking at, so they are granted on both tiers — list them, or an agent that reads
+    # this manifest never learns they exist.
+    available_commands = (
+        sorted(READ_COMMANDS | VIEW_COMMANDS | WRITE_COMMANDS)
+        if access_tier == "full" else sorted(READ_COMMANDS | VIEW_COMMANDS)
+    )
 
     return {
         "ok": True,
@@ -2312,6 +2318,39 @@ async def agent_tool_manifest(request: Request):
                 },
             },
             {
+                "name": "map_focus",
+                "type": "view",
+                "description": "Pan/zoom the operator's map to a point. View-only: allowed on the restricted tier.",
+                "parameters": {
+                    "lat": {"type": "float", "required": True, "description": "Latitude, -90..90"},
+                    "lng": {"type": "float", "required": True, "description": "Longitude, -180..180"},
+                    "zoom": {"type": "float", "required": False, "description": "Zoom 1-18 (4 country, 8 city, 12 airfield)"},
+                    "caption": {"type": "string", "required": False, "description": "Short label shown with the move"},
+                },
+            },
+            {
+                "name": "set_layers",
+                "type": "view",
+                "description": "Show/hide dashboard layers for the operator. View-only: allowed on the restricted tier. "
+                               "`reset` restores the operator's own selection from before the agent touched it.",
+                "parameters": {
+                    "on": {"type": "list[string]", "required": False, "description": "Layer names to switch on"},
+                    "off": {"type": "list[string]", "required": False, "description": "Layer names to switch off"},
+                    "solo": {"type": "bool", "required": False, "description": "With `on`: hide every other data layer"},
+                    "reset": {"type": "bool", "required": False, "description": "Restore the pre-agent layer selection"},
+                },
+            },
+            {
+                "name": "highlight",
+                "type": "view",
+                "description": "Draw transient rings over points the agent is talking about (max 40). They expire on their own. "
+                               "View-only: allowed on the restricted tier.",
+                "parameters": {
+                    "points": {"type": "list[object]", "required": True, "description": "[{lat, lng, id?, label?}]"},
+                    "ttl_seconds": {"type": "int", "required": False, "description": "Lifetime, 10-600 (default 120)"},
+                },
+            },
+            {
                 "name": "sar_focus_aoi",
                 "type": "write",
                 "description": "Move the operator map to a SAR AOI center and optionally open its details.",
@@ -2397,7 +2436,7 @@ async def agent_tool_manifest(request: Request):
 @limiter.limit("30/minute")
 async def api_capabilities(request: Request):
     """Return full API manifest so the agent knows every available endpoint."""
-    from services.openclaw_channel import READ_COMMANDS, WRITE_COMMANDS, detect_tier
+    from services.openclaw_channel import READ_COMMANDS, VIEW_COMMANDS, WRITE_COMMANDS, detect_tier
     from services.openclaw_routing import routing_manifest
     from services.config import get_settings
     tier = detect_tier()
@@ -2504,6 +2543,7 @@ async def api_capabilities(request: Request):
             ],
             "read_commands": sorted(READ_COMMANDS),
             "write_commands": sorted(WRITE_COMMANDS),
+            "view_commands": sorted(VIEW_COMMANDS),
             "command_reference": {
                 "get_telemetry": {"args": {}, "description": "All live fast-refresh data (flights, ships, sigint, earthquakes, weather, CCTV, etc)"},
                 "get_slow_telemetry": {"args": {}, "description": "Slow-refresh data (prediction markets, news, military bases, power plants, volcanoes, etc)"},

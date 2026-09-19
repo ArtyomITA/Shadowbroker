@@ -768,6 +768,18 @@ When a watch fires, you receive an SSE `alert` event. Forward it with
 
 ---
 
+## View Control (works on the restricted tier)
+
+Three commands change only what the operator is looking at, never the data, so they do not need full access:
+
+| Command | Parameters | Use it to |
+|---|---|---|
+| `map_focus` | `lat`, `lng`, `zoom?` (1-18), `caption?` | move the map to the place you are discussing |
+| `set_layers` | `on?`, `off?` (layer names), `solo?`, `reset?` | show only what matters; `reset` gives the operator their own layers back |
+| `highlight` | `points` = `[{lat, lng, id?, label?}]` (max 40), `ttl_seconds?` (10-600) | ring the entities you are talking about; rings expire on their own |
+
+Send them like any other command (`send_command("map_focus", {...})`). When a conversation ends, call `set_layers` with `reset: true`.
+
 ## Important Rules
 
 1. **Open SSE stream first** — call `sb.stream_updates()` at session start and keep it open. It pushes `layer_changed` events so you know exactly which layers to fetch, and delivers watchdog alerts instantly.

@@ -1325,6 +1325,30 @@ class ShadowBrokerClient:
             return data["result"].get("data", {})
         return {}
 
+    # -- View control: allowed on the restricted tier, they change only what the
+    #    operator is looking at, never the data. --------------------------------
+
+    async def map_focus(self, lat: float, lng: float, zoom: float | None = None,
+                        caption: str | None = None) -> dict:
+        """Pan/zoom the operator's map to a point (zoom 1-18)."""
+        args: dict = {"lat": lat, "lng": lng}
+        if zoom is not None:
+            args["zoom"] = zoom
+        if caption:
+            args["caption"] = caption
+        return await self.send_command("map_focus", args)
+
+    async def set_layers(self, on: list[str] | None = None, off: list[str] | None = None,
+                         solo: bool = False, reset: bool = False) -> dict:
+        """Show/hide dashboard layers. `solo` hides every other data layer;
+        `reset` restores the operator's own selection from before the agent touched it."""
+        return await self.send_command(
+            "set_layers", {"on": on or [], "off": off or [], "solo": solo, "reset": reset})
+
+    async def highlight(self, points: list[dict], ttl_seconds: int = 120) -> dict:
+        """Ring up to 40 points ({lat, lng, id?, label?}); rings expire on their own."""
+        return await self.send_command("highlight", {"points": points, "ttl_seconds": ttl_seconds})
+
     async def sar_focus_aoi(self, aoi_id: str, zoom: float = 8.0) -> dict:
         """Fly the operator's map to the center of an AOI.
 
