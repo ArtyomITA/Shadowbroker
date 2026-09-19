@@ -189,13 +189,22 @@ def _fetch_mirror_payload_text() -> str | None:
     from services.network_utils import fetch_with_curl
 
     last_error: Exception | None = None
-    for url in (_SOURCE_URL_HTTPS, _SOURCE_URL_HTTP):
+    # HTTP PRIMA, non dopo. Misurato: rx.linkfanel.net rifiuta la 443 (il
+    # mirror parla solo HTTP, lo dice il commento in cima al modulo), e il
+    # tentativo HTTPS fallito apre il CIRCUIT BREAKER sull'host — quindi il
+    # ripiego HTTP veniva bloccato dal breaker e la lista non si aggiornava
+    # MAI: si serviva per sempre il bundle preconfezionato, con dentro
+    # ricevitori morti da mesi (sintomo: TUNE IN che apre una scheda a vuoto).
+    # La difesa vera qui non e' il TLS che non esiste, e' la validazione di
+    # forma piu' sotto.
+    for url in (_SOURCE_URL_HTTP, _SOURCE_URL_HTTPS):
         try:
             res = fetch_with_curl(url, timeout=20)
             if res and res.status_code == 200:
                 if url == _SOURCE_URL_HTTP:
                     logger.info(
-                        "KiwiSDR: HTTPS mirror unavailable; using HTTP with shape validation"
+                        "KiwiSDR: mirror letto in HTTP (upstream senza TLS), "
+                        "validazione di forma applicata"
                     )
                 return res.text
             last_error = RuntimeError(f"HTTP {getattr(res, 'status_code', 'unknown')}")

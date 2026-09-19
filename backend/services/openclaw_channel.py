@@ -147,11 +147,27 @@ WRITE_COMMANDS = frozenset({
 })
 
 
+# Vergilius: view control. These change what the operator is LOOKING at — camera
+# position, layer visibility, transient highlights — and nothing else. They
+# cannot create, delete, inject, or persist anything; the worst a hostile agent
+# achieves is an annoying camera move the operator undoes with one click.
+#
+# Kept out of WRITE_COMMANDS on purpose. Requiring `full` for a camera pan would
+# force operators to also hand over `inject_data`, `osint_sweep` (active subnet
+# scanning) and `post_gate_message` (mesh posting) just to let an assistant point
+# at what it is talking about. That trade is not worth making.
+VIEW_COMMANDS = frozenset({
+    "map_focus",
+    "set_layers",
+    "highlight",
+})
+
+
 def allowed_commands(access_tier: str) -> frozenset[str]:
     """Return the set of commands allowed for the given access tier."""
     if access_tier == "full":
-        return READ_COMMANDS | WRITE_COMMANDS
-    return READ_COMMANDS
+        return READ_COMMANDS | WRITE_COMMANDS | VIEW_COMMANDS
+    return READ_COMMANDS | VIEW_COMMANDS
 
 
 # ---------------------------------------------------------------------------
@@ -1890,6 +1906,101 @@ def _dispatch_command(cmd: str, args: dict[str, Any]) -> dict[str, Any]:
                 "aoi": match.to_dict(),
             },
         }
+
+    # ── Vergilius: view control ──────────────────────────────────────────
+    # Before these, the only way an agent could move the operator's map was
+    # `sar_focus_aoi`, which requires a SAR Area of Interest to already exist —
+    # useless for "I am talking about Kyiv, look here". Layer visibility and
+    # entity highlighting had no path at all: the toggles live in React state
+    # (WorldviewLeftPanel) and nothing outside the browser could reach them.
+
+    if cmd == "map_focus":
+        try:
+            lat = float(args.get("lat"))
+            lng = float(args.get("lng"))
+        except (TypeError, ValueError):
+            return {"ok": False, "detail": "map_focus requires numeric lat and lng"}
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            return {"ok": False, "detail": f"coordinates out of range: {lat}, {lng}"}
+        try:
+            zoom = float(args.get("zoom", 6.0))
+        except (TypeError, ValueError):
+            zoom = 6.0
+        zoom = max(1.0, min(18.0, zoom))
+        from routers.ai_intel import push_agent_action
+        push_agent_action({
+            "action": "fly_to",
+            "source": "map_focus",
+            "lat": lat,
+            "lng": lng,
+            "zoom": zoom,
+            "caption": str(args.get("caption") or "")[:120] or None,
+        })
+        return {"ok": True, "data": {"dispatched": True, "lat": lat, "lng": lng, "zoom": zoom}}
+
+    if cmd == "set_layers":
+        # `reset` restores whatever the operator had before the agent touched
+        # anything: the frontend keeps the pre-agent snapshot, so a conversation
+        # never permanently rearranges someone's dashboard.
+        if args.get("reset"):
+            from routers.ai_intel import push_agent_action
+            push_agent_action({"action": "set_layers", "source": "set_layers", "reset": True})
+            return {"ok": True, "data": {"dispatched": True, "reset": True}}
+
+        def _lista(v):
+            if isinstance(v, str):
+                return [p.strip() for p in v.split(",") if p.strip()]
+            if isinstance(v, (list, tuple)):
+                return [str(p).strip() for p in v if str(p).strip()]
+            return []
+
+        on = _lista(args.get("on") or args.get("layers"))
+        off = _lista(args.get("off"))
+        solo = bool(args.get("solo", bool(on) and not off))
+        if not on and not off:
+            return {"ok": False, "detail": "set_layers requires 'on', 'off', or reset=true"}
+        from routers.ai_intel import push_agent_action
+        push_agent_action({
+            "action": "set_layers",
+            "source": "set_layers",
+            "on": on,
+            "off": off,
+            # `solo` is the one the assistant actually wants: "show only what I
+            # am talking about, hide the rest".
+            "solo": solo,
+        })
+        return {"ok": True, "data": {"dispatched": True, "on": on, "off": off, "solo": solo}}
+
+    if cmd == "highlight":
+        punti = args.get("punti") or args.get("points") or []
+        if not isinstance(punti, list) or not punti:
+            return {"ok": False, "detail": "highlight requires a non-empty 'punti' list"}
+        puliti = []
+        for p in punti[:40]:
+            if not isinstance(p, dict):
+                continue
+            try:
+                lat, lng = float(p.get("lat")), float(p.get("lng"))
+            except (TypeError, ValueError):
+                continue
+            if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+                continue
+            puliti.append({
+                "id": str(p.get("id") or "")[:80],
+                "lat": lat,
+                "lng": lng,
+                "label": str(p.get("etichetta") or p.get("label") or "")[:80],
+            })
+        if not puliti:
+            return {"ok": False, "detail": "no usable points (each needs numeric lat/lng)"}
+        from routers.ai_intel import push_agent_action
+        push_agent_action({
+            "action": "highlight",
+            "source": "highlight",
+            "points": puliti,
+            "ttl_seconds": max(10, min(600, int(args.get("ttl_seconds") or 120))),
+        })
+        return {"ok": True, "data": {"dispatched": True, "count": len(puliti)}}
 
     if cmd == "sar_watch_anomaly":
         from services.sar.sar_config import openclaw_enabled as _sar_openclaw_enabled

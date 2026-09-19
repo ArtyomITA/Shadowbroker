@@ -16,7 +16,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { computeNightPolygon } from '@/utils/solarTerminator';
 import { darkStyle, lightStyle } from '@/components/map/styles/mapStyles';
 import maplibregl from 'maplibre-gl';
-import { AlertTriangle, Radio, Activity, Play, Satellite, ExternalLink, Info } from 'lucide-react';
+import { AlertTriangle, Radio, Activity, Play, Satellite, ExternalLink, Info, TrendingUp } from 'lucide-react';
 import WikiImage from '@/components/WikiImage';
 import FishingDestinationRoute from '@/components/map/FishingDestinationRoute';
 import { useTheme } from '@/lib/ThemeContext';
@@ -216,6 +216,7 @@ import {
   buildWeatherAlertLabelsGeoJSON,
   buildSarAnomaliesGeoJSON,
   buildSarAoisGeoJSON,
+  buildFinnhubNewsGeoJSON,
   type FlightLayerConfig,
 } from '@/components/map/geoJSONBuilders';
 
@@ -309,6 +310,7 @@ const MAP_EXTRA_DATA_KEYS = [
   'malware_threats',
   'telegram_osint',
   'gt_risk',
+  'finnhub_news',
   'datacenters',
   'firms_fires',
   'fishing_activity',
@@ -381,6 +383,7 @@ const MaplibreViewer = ({
   activeFilters,
   onEntityClick,
   flyToLocation,
+  agentHighlights,
   selectedEntity,
   onMouseCoords,
   onRightClick,
@@ -754,11 +757,29 @@ const MaplibreViewer = ({
     if (flyToLocation && mapRef.current) {
       mapRef.current.flyTo({
         center: [flyToLocation.lng, flyToLocation.lat],
-        zoom: 8,
+        // Vergilius: honour the requested zoom. It was hardcoded to 8, so an
+        // agent asking to frame a whole country (zoom 4) or a single airfield
+        // (zoom 12) always landed at city scale regardless.
+        zoom: flyToLocation.zoom ?? 8,
         duration: 1500,
       });
     }
   }, [flyToLocation]);
+
+  // Vergilius: transient marks on what the assistant is talking about.
+  // Deliberately not a data layer — it carries no telemetry of its own, only
+  // rings drawn over entities already on screen, and it expires on its own.
+  const agentHighlightGeoJSON = useMemo(() => {
+    if (!agentHighlights || agentHighlights.length === 0) return null;
+    return {
+      type: 'FeatureCollection' as const,
+      features: agentHighlights.map((p) => ({
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+        properties: { id: p.id ?? '', label: p.label ?? '' },
+      })),
+    };
+  }, [agentHighlights]);
 
   const earthquakesGeoJSON = useMemo(
     () => (activeLayers.earthquakes ? buildEarthquakesGeoJSON(data?.earthquakes) : null),
@@ -1433,6 +1454,14 @@ const MaplibreViewer = ({
     [activeLayers.ships_military, data?.ships],
   );
 
+  // Finnhub financial news — gold pins at the ticker's company HQ (declared
+  // approximation, see builder). Small list (≤120), built on the main thread
+  // like SAR/carriers rather than in the static-layers worker.
+  const finnhubNewsGeoJSON = useMemo(
+    () => (activeLayers.finnhub_news ? buildFinnhubNewsGeoJSON(data?.finnhub_news) : null),
+    [activeLayers.finnhub_news, data?.finnhub_news],
+  );
+
   // SAR anomaly pins (Mode B) + AOI watchbox circles.  AOIs render whenever
   // the SAR layer is on; anomalies only appear when Mode B has produced
   // something.  The render path is fully imperative via useImperativeSource.
@@ -1683,6 +1712,7 @@ const MaplibreViewer = ({
     uavGeoJSON && 'uav-layer',
     gdeltGeoJSON && 'gdelt-layer',
     liveuaGeoJSON && 'liveuamap-layer',
+    finnhubNewsGeoJSON && 'finnhub-news-layer',
     frontlineGeoJSON && 'ukraine-frontline-layer',
     earthquakesGeoJSON && 'earthquakes-layer',
     satellitesGeoJSON && 'satellites-layer',
@@ -1800,6 +1830,7 @@ const MaplibreViewer = ({
   useImperativeSource(mapForHook, 'military-bases', militaryBasesGeoJSON, 75);
   useImperativeSource(mapForHook, 'gdelt', gdeltGeoJSON, 75);
   useImperativeSource(mapForHook, 'liveuamap', liveuaGeoJSON, 75);
+  useImperativeSource(mapForHook, 'finnhub-news', finnhubNewsGeoJSON, 75);
   useImperativeSource(mapForHook, 'air-quality-source', airQualityGeoJSON, 100);
   useImperativeSource(mapForHook, 'volcanoes-source', volcanoesGeoJSON, 100);
   useImperativeSource(mapForHook, 'fishing-source', fishingGeoJSON, 100);
@@ -1857,7 +1888,7 @@ const MaplibreViewer = ({
 
   return (
     <div
-      className={`relative h-full w-full z-0 isolate ${selectedEntity && ['region_dossier', 'gdelt', 'liveuamap', 'news', 'telegram_osint', 'gt_risk'].includes(selectedEntity.type) ? 'map-focus-active' : ''}`}
+      className={`relative h-full w-full z-0 isolate ${selectedEntity && ['region_dossier', 'gdelt', 'liveuamap', 'news', 'telegram_osint', 'gt_risk', 'finnhub_news'].includes(selectedEntity.type) ? 'map-focus-active' : ''}`}
       style={pinPlacementMode || sarAoiDropMode ? { cursor: 'crosshair' } : undefined}
     >
       <Map
@@ -4378,6 +4409,24 @@ const MaplibreViewer = ({
           />
         </Source>
 
+        {/* Finnhub financial news — gold pins at the ticker's company HQ.
+            Deliberate exception: unlike the other news layers, this one stays
+            clearly visible at world/continental zoom (no minzoom, larger
+            zoom-interpolated radius) so financial pins read on a global view. */}
+        <Source id="finnhub-news" type="geojson" data={EMPTY_FC}>
+          <Layer
+            id="finnhub-news-layer"
+            type="circle"
+            paint={{
+              'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 6, 6, 8, 10, 11],
+              'circle-color': '#fbbf24',
+              'circle-stroke-color': '#92400e',
+              'circle-stroke-width': 1.5,
+              'circle-opacity': 0.85,
+            }}
+          />
+        </Source>
+
         {/* tracked-flights & UAVs: rendered above ground layers (airborne) */}
         <Source id="tracked-flights" type="geojson" data={EMPTY_FC}>
           {/* Gold halo ring — POTUS aircraft only (Air Force One/Two, Marine One) */}
@@ -4472,6 +4521,53 @@ const MaplibreViewer = ({
         {/* HTML labels for earthquake cluster counts (hidden when any entity popup is active) */}
         {earthquakesGeoJSON && !selectedEntity && !isMapInteracting && (
           <ClusterCountLabels clusters={eqClusters} prefix="eqc" />
+        )}
+
+        {/* Vergilius: rings over what the assistant is talking about.
+            Drawn last so they sit above every data layer — the whole point is
+            to be impossible to miss while the answer is being spoken. */}
+        {agentHighlightGeoJSON && (
+          <Source id="agent-highlight" type="geojson" data={agentHighlightGeoJSON}>
+            <Layer
+              id="agent-highlight-halo"
+              type="circle"
+              paint={{
+                'circle-radius': 26,
+                'circle-color': 'transparent',
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#ffb347',
+                'circle-stroke-opacity': 0.45,
+              }}
+            />
+            <Layer
+              id="agent-highlight-ring"
+              type="circle"
+              paint={{
+                'circle-radius': 15,
+                'circle-color': '#ffb347',
+                'circle-opacity': 0.12,
+                'circle-stroke-width': 2.5,
+                'circle-stroke-color': '#ffb347',
+                'circle-stroke-opacity': 0.95,
+              }}
+            />
+            <Layer
+              id="agent-highlight-label"
+              type="symbol"
+              layout={{
+                'text-field': ['get', 'label'],
+                'text-size': 11,
+                'text-offset': [0, 2.2],
+                'text-anchor': 'top',
+                'text-allow-overlap': false,
+              }}
+              paint={{
+                'text-color': '#ffb347',
+                'text-halo-color': '#000',
+                'text-halo-width': 1.5,
+              }}
+            />
+          </Source>
         )}
 
         {/* HTML labels for UAVs (orange names) */}
@@ -5971,6 +6067,80 @@ const MaplibreViewer = ({
                       })()}
                     </div>
                   </div>
+                </div>
+              </div>
+            </Popup>
+          );
+        })()}
+
+        {(() => {
+          if (selectedEntity?.type !== 'finnhub_news' || !data?.finnhub_news) return null;
+          const item = data.finnhub_news.find(
+            (n) => (n.url || n.title) === selectedEntity.id,
+          );
+          if (!item || item.lat == null || item.lng == null) return null;
+          const when = (() => {
+            const p = item.published;
+            if (p == null || p === '') return '';
+            const ms = typeof p === 'number' ? (p < 1e12 ? p * 1000 : p) : Date.parse(String(p));
+            return Number.isFinite(ms) ? new Date(ms).toLocaleString() : '';
+          })();
+          return (
+            <Popup
+              longitude={item.lng}
+              latitude={item.lat}
+              closeButton={false}
+              closeOnClick={false}
+              onClose={() => onEntityClick?.(null)}
+              anchor="bottom"
+              offset={15}
+            >
+              <div className="bg-[var(--bg-secondary)]/90 backdrop-blur-md border border-amber-700 rounded-lg flex flex-col z-[100] font-mono shadow-[0_4px_30px_rgba(251,191,36,0.35)] pointer-events-auto overflow-hidden w-[300px]">
+                <div className="p-2 border-b border-amber-500/30 bg-amber-950/40 flex justify-between items-center">
+                  <h2 className="text-[10px] tracking-widest font-bold text-amber-400 flex items-center gap-1">
+                    <TrendingUp size={12} className="text-amber-400" /> FINANCIAL NEWS
+                  </h2>
+                  <button
+                    onClick={() => onEntityClick?.(null)}
+                    className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="p-3 flex flex-col gap-2">
+                  <div className="flex items-start gap-1.5 border-b border-[var(--border-primary)] pb-1.5">
+                    {item.ticker && (
+                      <span className="text-[9px] px-1 py-px border border-amber-500/40 text-amber-300 shrink-0 mt-px font-bold">
+                        {item.ticker}
+                      </span>
+                    )}
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-amber-400 hover:text-amber-300 text-[11px] font-bold leading-snug"
+                      style={{ pointerEvents: 'all' }}
+                    >
+                      {item.title}
+                    </a>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-[var(--border-primary)] pb-1">
+                    <span className="text-[var(--text-muted)] text-[9px]">SOURCE</span>
+                    <span className="text-white text-[9px] font-bold text-right ml-2">
+                      {item.source || 'Finnhub'}
+                      {when ? ` · ${when}` : ''}
+                    </span>
+                  </div>
+                  {/* Pin = company HQ, not where the event happened — keep the approximation visible */}
+                  {item.hq && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[var(--text-muted)] text-[9px]">HQ</span>
+                      <span className="text-amber-300 text-[9px] font-bold text-right ml-2">
+                        {item.hq} — company HQ, not the event site
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </Popup>

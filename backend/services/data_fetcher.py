@@ -51,6 +51,7 @@ from services.fetchers.news import fetch_news  # noqa: F401
 # Newly extracted fetcher modules
 from services.fetchers.financial import fetch_financial_markets  # noqa: F401
 from services.fetchers.unusual_whales import fetch_unusual_whales  # noqa: F401
+from services.fetchers.finnhub_news import fetch_finnhub_news  # noqa: F401
 from services.fetchers.earth_observation import (  # noqa: F401
     fetch_earthquakes,
     fetch_firms_fires,
@@ -701,7 +702,12 @@ def update_all_data(*, startup_mode: bool = False):
 
 _scheduler = None
 _STARTUP_CCTV_INGEST_DELAY_S = int(os.environ.get("SHADOWBROKER_STARTUP_CCTV_INGEST_DELAY_S", "180"))
-_FINANCIAL_REFRESH_MINUTES = 30
+# Un minuto: il fetcher spazza tutti i simboli a ogni giro e si autolimita a
+# FINNHUB_THROTTLE_SECONDS (30 di predefinito), quindi il ritmo vero lo decide
+# quella soglia. Prima era 30 minuti con tre simboli per giro: una passata
+# completa richiedeva ore, e la maggior parte dei titoli restava ferma.
+_FINANCIAL_REFRESH_MINUTES = float(os.getenv("FINANCIAL_REFRESH_MINUTES", "1"))
+_FINNHUB_NEWS_REFRESH_MINUTES = float(os.getenv("FINNHUB_NEWS_REFRESH_MINUTES", "10"))
 
 
 def _oracle_resolution_sweep():
@@ -1074,7 +1080,68 @@ def start_scheduler():
         next_run_time=datetime.utcnow() + timedelta(minutes=_FINANCIAL_REFRESH_MINUTES),
     )
 
+    # Quotazioni "realtime" — ogni 30s su 10 simboli, ma SOLO quando
+    # l'operatore accende il flag omonimo nella config finanziaria
+    # (services.financial_config). A flag spento il job rientra subito.
+    _realtime_symbols = [
+        "RTX", "LMT", "PLTR", "NVDA", "AMZN",
+        "MSFT", "AAPL", "GOOGL", "META", "TSLA",
+    ]
+
+    def _fetch_realtime_quotes():
+        from services.financial_config import get_config
+
+        if not get_config().get("realtime"):
+            return
+        finnhub_key = os.getenv("FINNHUB_API_KEY", "").strip()
+        if not finnhub_key:
+            return
+        from services.fetchers.financial import _fetch_finnhub_quote, budget_residuo
+
+        simboli = list(_realtime_symbols)
+        # Stessa chiave e stesso tetto degli altri fetcher Finnhub: se il
+        # minuto e' quasi esaurito si accorcia la lista, margine 8 compreso.
+        residuo = budget_residuo()
+        if residuo is not None:
+            disponibili = max(0, residuo - 8)
+            if disponibili < len(simboli):
+                simboli = simboli[:disponibili]
+        if not simboli:
+            return
+        aggiornati = {}
+        for sym in simboli:
+            s, dati = _fetch_finnhub_quote(sym, finnhub_key)
+            if dati:
+                aggiornati[s] = dati
+        if not aggiornati:
+            return
+        with _data_lock:
+            # Fusione per simbolo, mai sostituzione: la mappa completa la
+            # possiede lo spazzolamento al minuto di financial.py.
+            stocks = latest_data.get("stocks")
+            if isinstance(stocks, dict):
+                stocks.update(aggiornati)
+            else:
+                latest_data["stocks"] = dict(aggiornati)
+        _mark_fresh("stocks")
+
+    _scheduler.add_job(
+        lambda: _run_task_with_health(_fetch_realtime_quotes, "fetch_realtime_quotes"),
+        "interval",
+        seconds=30,
+        id="realtime_quotes",
+        max_instances=1,
+        misfire_grace_time=15,
+    )
+
     # Unusual Whales — every 15 minutes (congress trades, dark pool, flow alerts)
+    #
+    # Partenza sfalsata di ~40s: i giri di financial (1'), news (10') e
+    # unusual_whales (15') altrimenti si allineano ogni 30 minuti e sommano
+    # una raffica di ~73 chiamate contro un tetto di 60/min. Con l'offset la
+    # raffica di questo job cade a meta' minuto, lontana dallo spazzolamento
+    # delle quotazioni; APScheduler ricalcola i giri successivi a partire da
+    # qui, quindi lo sfasamento si conserva.
     _scheduler.add_job(
         lambda: _run_task_with_health(fetch_unusual_whales, "fetch_unusual_whales"),
         "interval",
@@ -1082,6 +1149,23 @@ def start_scheduler():
         id="unusual_whales",
         max_instances=1,
         misfire_grace_time=120,
+        next_run_time=datetime.utcnow() + timedelta(seconds=40),
+    )
+
+    # Notizie finanziarie Finnhub — ogni 10 minuti.
+    # Sono 14 chiamate a giro (flusso generale + 13 titoli; fino a 31 con
+    # deep_news acceso): vanno tenute lontane dallo spazzolamento delle
+    # quotazioni, che da solo occupa gia' meta' del tetto al minuto. Da qui
+    # l'offset di ~25s: cade a meta' minuto, e non coincide nemmeno con i
+    # +40s di unusual_whales.
+    _scheduler.add_job(
+        lambda: _run_task_with_health(fetch_finnhub_news, "fetch_finnhub_news"),
+        "interval",
+        minutes=_FINNHUB_NEWS_REFRESH_MINUTES,
+        id="finnhub_news",
+        max_instances=1,
+        misfire_grace_time=180,
+        next_run_time=datetime.utcnow() + timedelta(seconds=25),
     )
 
     # Meshtastic map API — once per day with a per-install random offset to

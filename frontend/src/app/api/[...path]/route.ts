@@ -67,6 +67,7 @@ function isSensitiveProxyPath(pathSegments: string[]): boolean {
   if (joined === 'layers') return true;
   if (joined === 'ais/feed') return true;
   if (pathSegments[0] === 'ai') return true;
+  if (pathSegments[0] === 'startup') return true;
   if (pathSegments[0] === 'sar' && (pathSegments[1] === 'mode-b' || pathSegments[1] === 'aois')) {
     return true;
   }

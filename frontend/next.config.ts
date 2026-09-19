@@ -18,6 +18,17 @@ const isDesktopExport = process.env.NEXT_OUTPUT === 'export';
 // each document response carries a unique per-request nonce.  Non-CSP
 // security headers remain here because they are static and benefit from
 // next.config's catch-all source matcher.
+// Vergilius: the dashboard is embedded in Odysseus as an iframe, so framing has
+// to be permitted for exactly one origin. `X-Frame-Options` cannot express that
+// — its `ALLOW-FROM` variant was removed from every current browser, leaving
+// only DENY/SAMEORIGIN — and when both headers are present the legacy one wins
+// in some engines. So when an allow-list is configured we drop X-Frame-Options
+// and let the CSP `frame-ancestors` directive in src/proxy.ts do the gating,
+// which is the modern replacement and does take an origin list.
+//
+// Unset => unchanged upstream behaviour (DENY, frame-ancestors 'none').
+const frameAncestors = (process.env.SHADOWBROKER_FRAME_ANCESTORS || '').trim();
+
 const securityHeaders = [
   {
     key: 'Referrer-Policy',
@@ -27,13 +38,27 @@ const securityHeaders = [
     key: 'X-Content-Type-Options',
     value: 'nosniff',
   },
-  {
-    key: 'X-Frame-Options',
-    value: 'DENY',
-  },
+  ...(frameAncestors
+    ? []
+    : [
+        {
+          key: 'X-Frame-Options',
+          value: 'DENY',
+        },
+      ]),
 ];
 
 const nextConfig: NextConfig = {
+  // Vergilius: in dev, Next.js tratta `127.0.0.1` e `localhost` come origini
+  // diverse e blocca le proprie risorse interne (font, WebSocket HMR) quando la
+  // pagina e' stata aperta con l'altra forma. Il chunk della mappa non arriva
+  // mai e resta "PRIORITIZING MAP FEEDS" per sempre — senza nessun errore
+  // visibile in pagina.
+  //
+  // Riguarda noi in pieno: Odysseus incorpora il cruscotto in un iframe e
+  // l'indirizzo puo' essere l'una o l'altra forma a seconda di come si e'
+  // arrivati su Odysseus.
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
   transpilePackages: ['react-map-gl', 'maplibre-gl'],
   output: isDesktopExport ? 'export' : 'standalone',
   devIndicators: false,

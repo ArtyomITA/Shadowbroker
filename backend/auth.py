@@ -234,13 +234,47 @@ def require_admin(request: Request):
     raise HTTPException(status_code=403, detail=detail)
 
 
+def _normalize_host(host: str) -> str:
+    """Reduce a client host to a bare comparable address.
+
+    Vergilius: two shapes were slipping past the loopback set below, and both
+    produced the same silent failure — "Forbidden — local operator access only"
+    on requests that came from the dashboard's own /api proxy, while the
+    identical request sent straight to :8000 worked.
+
+      * **Port attached.** uvicorn runs with proxy_headers on by default and
+        rewrites `request.client.host` from `x-forwarded-for`; that header can
+        carry the port (`127.0.0.1:54321`).
+
+      * **IPv4 mapped into IPv6.** Node connects over a dual-stack socket, so
+        the observed host is `::ffff:127.0.0.1` — loopback, but not spelled the
+        way the set expects. This was the real culprit here.
+
+    Symptoms it caused inside the dashboard: layer toggles, Time Machine, the
+    API-keys form, and the agent-action queue (i.e. the whole map-control
+    feature) all returned 403.
+    """
+    h = (host or "").strip().lower()
+    if not h:
+        return ""
+    if h.startswith("["):                       # [::1]:8000
+        end = h.find("]")
+        h = h[1:end] if end > 0 else h
+    elif h.count(":") == 1:                     # 127.0.0.1:54321
+        h = h.rsplit(":", 1)[0]
+    # ::ffff:127.0.0.1 / ::ffff:7f00:1 — IPv4-mapped IPv6
+    if h.startswith("::ffff:"):
+        h = h[len("::ffff:"):]
+    return h
+
+
 def _is_local_or_docker(host: str) -> bool:
     """Return True only for loopback addresses.
 
     RFC-1918 ranges (10.*, 172.*, 192.168.*) are no longer implicitly trusted.
     Callers on Docker bridge networks must present a valid admin key.
     """
-    return host in {"127.0.0.1", "::1", "localhost"}
+    return _normalize_host(host) in {"127.0.0.1", "::1", "localhost", "0:0:0:0:0:0:0:1"}
 
 
 def _docker_bridge_local_operator_enabled() -> bool:

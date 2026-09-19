@@ -328,7 +328,9 @@ function NewsFeedInner({ selectedEntity, regionDossier, regionDossierLoading, gt
       'military_flights', 'tracked_flights', 'ships', 'gdelt', 'liveuamap',
       'airports', 'last_updated', 'threat_level',
     ] as const);
-    const [isMinimized, setIsMinimized] = useState(false);
+    // Start collapsed — same convention as TimelinePanel; the operator opens
+    // the intercept feed when they want it rather than it dominating the HUD.
+    const [isMinimized, setIsMinimized] = useState(true);
     const [selectedFlightTrail, setSelectedFlightTrail] = useState<FlightTrailPoint[]>([]);
     const [expandedIndexes, setExpandedIndexes] = useState<number[]>([]);
     const [fimiExpanded, setFimiExpanded] = useState(false);

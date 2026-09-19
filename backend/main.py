@@ -378,6 +378,7 @@ def _load_optional_router(module_name: str) -> APIRouter:
 
 
 health_router = _load_optional_router("routers.health")
+startup_router = _load_optional_router("routers.startup")
 mesh_peer_sync_router = _load_optional_router("routers.mesh_peer_sync")
 mesh_operator_router = _load_optional_router("routers.mesh_operator")
 mesh_oracle_router = _load_optional_router("routers.mesh_oracle")
@@ -403,6 +404,7 @@ if _MESH_ONLY:
     intel_feeds_router = APIRouter()
     analytics_router = APIRouter()
     agent_shell_router = APIRouter()
+    financial_config_router = APIRouter()
 else:
     cctv_router = _load_optional_router("routers.cctv")
     radio_router = _load_optional_router("routers.radio")
@@ -419,6 +421,7 @@ else:
     intel_feeds_router = _load_optional_router("routers.intel_feeds")
     analytics_router = _load_optional_router("routers.analytics")
     agent_shell_router = _load_optional_router("routers.agent_shell")
+    financial_config_router = _load_optional_router("routers.financial_config")
 
 
 # ---------------------------------------------------------------------------
@@ -3839,6 +3842,7 @@ async def apply_no_store_to_sensitive_paths(request: Request, call_next):
 # Register routers
 # ---------------------------------------------------------------------------
 app.include_router(health_router)
+app.include_router(startup_router)
 app.include_router(cctv_router)
 app.include_router(radio_router)
 app.include_router(sigint_router)
@@ -3861,6 +3865,7 @@ app.include_router(entity_graph_router)
 app.include_router(intel_feeds_router)
 app.include_router(analytics_router)
 app.include_router(agent_shell_router)
+app.include_router(financial_config_router)
 
 from services.data_fetcher import update_all_data
 

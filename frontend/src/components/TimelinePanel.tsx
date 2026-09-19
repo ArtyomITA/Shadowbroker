@@ -76,7 +76,7 @@ function pct(value: number, min: number, max: number): number {
 
 export default function TimelinePanel() {
   const tm = useTimeMachine();
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(true);
   const [configOpen, setConfigOpen] = useState(false);
   const [tmEnabled, setTmEnabled] = useState(false);
   const [tmSaving, setTmSaving] = useState(false);

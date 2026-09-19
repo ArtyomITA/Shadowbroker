@@ -831,7 +831,17 @@ async def bootstrap_critical(request: Request):
                 150,
             ),
             "freshness": freshness,
-            "bootstrap_ready": True,
+            # API reachability is not the same as a meaningful first paint.
+            # Keep secondary panels staged until at least one critical dataset
+            # exists; the startup gate separately tracks every required feed.
+            "bootstrap_ready": bool(
+                d.get("commercial_flights")
+                or d.get("military_flights")
+                or d.get("tracked_flights")
+                or d.get("ships")
+                or d.get("news")
+                or d.get("threat_level")
+            ),
             "bootstrap_payload": True,
         }
 
@@ -1089,7 +1099,7 @@ async def live_data_slow(
 
     def _build() -> dict:
         d = get_latest_data_subset_refs(
-            "last_updated", "news", "stocks", "financial_source", "oil", "weather", "traffic",
+            "last_updated", "news", "stocks", "financial_source", "finnhub_news", "oil", "weather", "traffic",
             "earthquakes", "frontlines", "gdelt", "airports", "kiwisdr", "satnogs_stations",
             "satnogs_observations", "tinygs_satellites", "space_weather", "internet_outages",
             "firms_fires", "datacenters", "military_bases", "power_plants", "viirs_change_nodes",
@@ -1106,6 +1116,7 @@ async def live_data_slow(
             "news": d.get("news", []),
             "stocks": d.get("stocks", {}),
             "financial_source": d.get("financial_source", ""),
+            "finnhub_news": d.get("finnhub_news", []),
             "oil": d.get("oil", {}),
             "weather": d.get("weather"),
             "traffic": d.get("traffic", []),

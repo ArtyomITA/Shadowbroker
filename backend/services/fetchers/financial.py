@@ -26,8 +26,28 @@ TICKERS_CRYPTO = [
     ("ADA", "BINANCE:ADAUSDT", "ADA-USD"),
 ]
 
+# Preset "broad" (services.financial_config): i 25 del core piu' questi 35,
+# 60 simboli totali. Coprono i settori che il core ignora del tutto.
+TICKERS_BROAD_EXTRA = [
+    "JPM", "GS", "MS", "BAC", "WFC", "C", "BLK", "V", "MA",   # finanza
+    "XOM", "CVX", "COP", "SLB", "OXY",                         # energia
+    "CAT", "DE", "HON", "GE", "LHX", "HII", "AVGO",            # industria
+    "QCOM", "MU", "TXN", "ORCL", "CRM", "IBM", "ADBE",         # tech
+    "LLY", "JNJ", "PFE", "UNH", "WMT", "KO", "PEP",            # salute/consumo
+]
+
+# Contatore delle passate in modalita' broad: serve ad alternare le due meta'
+# della lista, cosi' 60 simboli non finiscono mai nello stesso minuto.
+_broad_sweep_counter = 0
+
 # Ticker priority for high-frequency updates (we update these every tick)
 PRIORITY_SYMBOLS = ["BTC", "ETH", "NVDA", "PLTR"]
+
+# Minimum seconds between two Finnhub sweeps. The free tier allows 60 calls per
+# minute; a full sweep is len(TICKERS_TECH + TICKERS_DEFENSE + TICKERS_CRYPTO)
+# calls, so at 30s that is 2 sweeps/minute and roughly half the budget — leaving
+# headroom for the insider/congress fetcher that shares the same key.
+FINNHUB_THROTTLE_S = float(os.getenv("FINNHUB_THROTTLE_SECONDS", "30"))
 
 # Persistence for state between short-lived scheduler ticks
 _last_fetch_results = {}
@@ -36,12 +56,53 @@ _rotating_index = 0
 _executor = ThreadPoolExecutor(max_workers=10)
 
 
+# Quanto resta del tetto al minuto, letto dalle intestazioni della risposta.
+# Finnhub le manda a ogni chiamata (X-Ratelimit-Limit / -Remaining / -Reset):
+# meglio leggere il numero vero che stimarlo, perche' la stessa chiave la usano
+# anche il fetcher insider e quello delle notizie.
+_budget = {"restanti": None, "azzeramento": 0.0}
+_budget_lock = threading.Lock()
+
+
+def _aggiorna_budget(headers):
+    try:
+        restanti = int(headers.get("X-Ratelimit-Remaining", ""))
+        azzeramento = float(headers.get("X-Ratelimit-Reset", "0") or 0)
+    except (TypeError, ValueError):
+        return
+    with _budget_lock:
+        _budget["restanti"] = restanti
+        _budget["azzeramento"] = azzeramento
+
+
+def budget_residuo() -> int | None:
+    """Chiamate ancora disponibili nella finestra corrente, o None se ignoto."""
+    with _budget_lock:
+        if _budget["restanti"] is None:
+            return None
+        # Passato l'istante di azzeramento il contatore riparte pieno.
+        if time.time() >= _budget["azzeramento"]:
+            return None
+        return _budget["restanti"]
+
+
+def aggiorna_budget(headers) -> None:
+    """Alimenta il contatore condiviso dalle risposte di altri fetcher Finnhub.
+
+    Stessa chiave, stesso tetto al minuto: il fetcher delle notizie
+    (finnhub_news) passa qui le intestazioni delle proprie risposte, cosi'
+    il budget visto da tutti riflette anche la sua spesa.
+    """
+    _aggiorna_budget(headers)
+
+
 def _fetch_finnhub_quote(symbol: str, api_key: str):
     """Fetch from Finnhub. Returns (symbol, data) or (symbol, None)."""
     url = f"https://finnhub.io/api/v1/quote?symbol={symbol}&token={api_key}"
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=5) as response:
+            _aggiorna_budget(response.headers)
             data = json.loads(response.read().decode())
             if "c" not in data or data["c"] == 0:
                 return symbol, None
@@ -101,7 +162,7 @@ def financial_fetch_enabled() -> bool:
 
 def fetch_financial_markets():
     """Fetches full market list with smart throttling (3s for Finnhub, 60s for yfinance)."""
-    global _last_fetch_time, _last_fetch_results, _rotating_index
+    global _last_fetch_time, _last_fetch_results, _rotating_index, _broad_sweep_counter
 
     if not financial_fetch_enabled():
         logger.debug(
@@ -117,9 +178,9 @@ def fetch_financial_markets():
     use_finnhub = bool(finnhub_key)
     
     now = time.time()
-    # Throttle logic: 3s for Finnhub, 60s for yfinance fallback
-    throttle_s = 3.0 if use_finnhub else 60.0
-    
+    # Throttle logic: configurable for Finnhub (default 30s), 60s for yfinance
+    throttle_s = FINNHUB_THROTTLE_S if use_finnhub else 60.0
+
     if now - _last_fetch_time < throttle_s and _last_fetch_results:
         return # Skip if too frequent
 
@@ -132,25 +193,61 @@ def fetch_financial_markets():
     subset_to_fetch = []
     
     if use_finnhub:
-        # Finnhub Free Limit: 60/min. 
-        # Ticking every 3s = 20 ticks/min. 
-        # To stay safe, we fetch only ~3 items per tick.
-        # Priority items (BTC, ETH) + 1 rotating item.
-        subset_to_fetch = ["BINANCE:BTCUSDT", "BINANCE:ETHUSDT"]
-        
-        # Determine rotating ticker
-        all_other_symbols = []
-        for sym in all_stocks:
-            all_other_symbols.append(sym)
+        # Sweep EVERY symbol, not three of them.
+        #
+        # The previous version fetched BTC, ETH and one rotating ticker per run,
+        # sized for a 3-second tick. But the scheduler calls this once every
+        # FINANCIAL_REFRESH_MINUTES, so in practice a single ticker was refreshed
+        # per run and a full pass over the 25 symbols took hours — most of the
+        # list showed a price from the previous session, with nothing saying so.
+        #
+        # Budget check: 25 calls per sweep (core preset), throttled to one
+        # sweep every 30s, is 50 calls/minute against a 60/minute free tier.
+        # The insider and congress fetcher runs every 15 minutes and is
+        # cached, so the two together stay under the ceiling.
+        subset_to_fetch = list(all_stocks)
+
+        # Preset runtime (services.financial_config): "broad" aggiunge 35
+        # simboli ai 25 del core. Vale solo per il ramo Finnhub — il
+        # fallback yfinance resta sui 25 per non martellare Yahoo.
+        try:
+            from services.financial_config import get_config
+            preset = get_config().get("preset", "core")
+        except Exception:
+            preset = "core"
+        if preset == "broad":
+            subset_to_fetch += TICKERS_BROAD_EXTRA
+
         for label, (f_sym, y_sym) in all_crypto.items():
-            if label not in ["BTC", "ETH"]:
-                all_other_symbols.append(f_sym)
-        
-        if all_other_symbols:
-            rotated = all_other_symbols[_rotating_index % len(all_other_symbols)]
-            subset_to_fetch.append(rotated)
-            _rotating_index += 1
-            
+            subset_to_fetch.append(f_sym)
+
+        if preset == "broad":
+            # 60 simboli non entrano in un minuto insieme agli altri fetcher
+            # che condividono la chiave: si alternano le due meta' (indici
+            # pari / dispari) a ogni passata. Ogni simbolo si aggiorna ogni
+            # 2 minuti e la spesa resta ~30 chiamate al minuto. La divisione
+            # per indice tiene anche le cripto sparse fra le due meta'.
+            subset_to_fetch = subset_to_fetch[_broad_sweep_counter % 2 :: 2]
+            _broad_sweep_counter += 1
+
+        # Guardia sul tetto vero. Il limite misurato sull'API e' 60 al minuto
+        # (X-Ratelimit-Limit), e la stessa chiave la usano anche il fetcher
+        # insider e quello delle notizie. Se non c'e' spazio per la passata
+        # intera si accorcia invece di prendersi dei 429: meglio meno simboli
+        # aggiornati che una raffica di errori che li lascia fermi tutti.
+        residuo = budget_residuo()
+        if residuo is not None:
+            margine = 8  # lasciato agli altri fetcher che condividono la chiave
+            disponibili = max(0, residuo - margine)
+            if disponibili < len(subset_to_fetch):
+                logger.info(
+                    "Finnhub: restano %d chiamate, passata ridotta da %d a %d simboli",
+                    residuo, len(subset_to_fetch), disponibili,
+                )
+                subset_to_fetch = subset_to_fetch[:disponibili]
+        if not subset_to_fetch:
+            return
+
         # Concurrently fetch
         futures = [_executor.submit(_fetch_finnhub_quote, s, finnhub_key) for s in subset_to_fetch]
         for f in futures:

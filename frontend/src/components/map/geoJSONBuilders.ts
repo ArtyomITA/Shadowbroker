@@ -40,6 +40,7 @@ import type {
   CrowdThreatItem,
   SarAnomaly,
   SarAoi,
+  FinnhubNewsItem,
 } from '@/types/dashboard';
 import { classifyAircraft } from '@/utils/aircraftClassification';
 import { MISSION_COLORS, MISSION_ICON_MAP } from '@/components/map/icons/SatelliteIcons';
@@ -691,6 +692,46 @@ export function buildGdeltGeoJSON(gdelt?: GDELTIncident[], inView?: InViewFilter
       })
       .filter(Boolean) as GeoJSON.Feature[],
   };
+}
+
+// ─── Finnhub Financial News (HQ pins) ───────────────────────────────────────
+// Pin = the ticker's company headquarters, NOT where the event happened —
+// a declared approximation (the popup shows an "HQ: …" line). Only items the
+// backend enriched with lat/lng become features; general market news without
+// a ticker stays off the map.
+
+export function buildFinnhubNewsGeoJSON(items?: FinnhubNewsItem[], inView?: InViewFilter): FC {
+  if (!items?.length) return null;
+  // Several stories share one HQ (up to ~6 per ticker): fan duplicates out on
+  // a tiny golden-angle spiral (~1-2 km) so every pin stays clickable while
+  // remaining at HQ-city precision.
+  const seenAt = new Map<string, number>();
+  const features = items
+    .map((item) => {
+      if (item.lat == null || item.lng == null) return null;
+      if (inView && !inView(item.lat, item.lng)) return null;
+      const key = `${item.lat.toFixed(3)},${item.lng.toFixed(3)}`;
+      const k = seenAt.get(key) ?? 0;
+      seenAt.set(key, k + 1);
+      const r = 0.012 * Math.sqrt(k);
+      const a = k * 2.39996; // golden angle
+      const lng = item.lng + r * Math.cos(a);
+      const lat = item.lat + r * Math.sin(a);
+      return {
+        type: 'Feature' as const,
+        properties: {
+          id: item.url || item.title,
+          type: 'finnhub_news',
+          title: item.title || '',
+          ticker: item.ticker || '',
+          hq: item.hq || '',
+        },
+        geometry: { type: 'Point' as const, coordinates: [lng, lat] },
+      };
+    })
+    .filter(Boolean) as GeoJSON.Feature[];
+  if (!features.length) return null;
+  return { type: 'FeatureCollection' as const, features };
 }
 
 // ─── LiveUAMap Incidents ────────────────────────────────────────────────────

@@ -220,6 +220,18 @@ def _normalize_congress_trade(raw: dict[str, Any], symbol: str) -> dict[str, Any
 
 def fetch_congress_trades() -> dict[str, Any]:
     """Fetch congressional trades across watched tickers."""
+    # /stock/congressional-trading risponde 403 sul piano gratuito Finnhub
+    # (misurato): erano 13 chiamate morte a ogni giro. Il percorso resta per
+    # chi ha un piano che lo include (UW_CONGRESS=1); di default non si chiama
+    # nulla e la lista trades resta vuota.
+    if os.getenv("UW_CONGRESS", "0") != "1":
+        return {
+            "ok": True,
+            "source": "Finnhub",
+            "attribution": "Data from Finnhub",
+            "trades": [],
+        }
+
     all_trades: list[dict[str, Any]] = []
     for symbol in WATCHED_TICKERS:
         cache_key = f"congress:{symbol}"

@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { motion } from '@/lib/motion';
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import WorldviewLeftPanel from '@/components/WorldviewLeftPanel';
+import FinancialPanel from '@/components/FinancialPanel';
 
 import NewsFeed from '@/components/NewsFeed';
 import MarketsPanel from '@/components/MarketsPanel';
@@ -36,6 +37,7 @@ import { useReverseGeocode } from '@/hooks/useReverseGeocode';
 import { useRegionDossier } from '@/hooks/useRegionDossier';
 import { useGtDossier } from '@/hooks/useGtDossier';
 import { useAgentActions } from '@/hooks/useAgentActions';
+import { AGENT_LAYER_KEYS, AGENT_LAYER_ALWAYS } from '@/lib/agentLayerMap';
 import { useFeedHealth } from '@/hooks/useFeedHealth';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import KeyboardShortcutsOverlay from '@/components/KeyboardShortcutsOverlay';
@@ -58,6 +60,7 @@ import { useTranslation } from '@/i18n';
 import { LocateBar } from './LocateBar';
 import { SentinelInfoModal } from './SentinelInfoModal';
 import SarAoiEditorModal from '@/components/SarAoiEditorModal';
+import StartupGate from '@/components/StartupGate';
 
 // Use dynamic loads for Maplibre to avoid SSR window is not defined errors
 const MaplibreViewer = dynamic(() => import('@/components/MaplibreViewer'), { ssr: false });
@@ -66,9 +69,12 @@ const SettingsPanel = dynamic(() => import('@/components/SettingsPanel'), { ssr:
 const MeshTerminal = dynamic(() => import('@/components/MeshTerminal'), { ssr: false });
 const InfonetTerminal = dynamic(() => import('@/components/InfonetTerminal'), { ssr: false });
 
+const ACTIVE_LAYERS_STORAGE_KEY = 'sb_active_layers_v1';
+const ACTIVE_LAYERS_CHANNEL = 'shadowbroker-active-layers-v1';
+
 // LocateBar and SentinelInfoModal extracted to page-local modules (Sprint 4B)
 
-export default function Dashboard() {
+function DashboardCore() {
   const viewBoundsRef = useRef<{ south: number; west: number; north: number; east: number } | null>(null);
   const { t } = useTranslation();
   // Start the critical map data request before panel/control-plane effects.
@@ -231,6 +237,8 @@ export default function Dashboard() {
     // Overlays
     ukraine_frontline: true,
     global_incidents: true,
+    // Financial news HQ pins — opt-in, off by default.
+    finnhub_news: false,
     day_night: true,
     correlations: true,
     contradictions: true,
@@ -247,6 +255,67 @@ export default function Dashboard() {
     // SAR (Synthetic Aperture Radar)
     sar: true,
   });
+  const layerSyncIdRef = useRef(`sb-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const layerChannelRef = useRef<BroadcastChannel | null>(null);
+  const suppressLayerBroadcastRef = useRef(false);
+  const [layerSyncReady, setLayerSyncReady] = useState(false);
+
+  useEffect(() => {
+    const applySharedLayers = (candidate: unknown) => {
+      if (!candidate || typeof candidate !== 'object') return;
+      setActiveLayers((previous) => {
+        const next = { ...previous };
+        for (const [key, value] of Object.entries(candidate as Record<string, unknown>)) {
+          if (key in previous && typeof value === 'boolean') {
+            (next as Record<string, boolean>)[key] = value;
+          }
+        }
+        return next;
+      });
+    };
+
+    try {
+      const saved = localStorage.getItem(ACTIVE_LAYERS_STORAGE_KEY);
+      if (saved) applySharedLayers(JSON.parse(saved));
+    } catch {
+      // Corrupt or unavailable storage must never block the dashboard.
+    }
+
+    if ('BroadcastChannel' in window) {
+      const channel = new BroadcastChannel(ACTIVE_LAYERS_CHANNEL);
+      layerChannelRef.current = channel;
+      channel.onmessage = (event: MessageEvent<{ source?: string; layers?: unknown }>) => {
+        if (!event.data || event.data.source === layerSyncIdRef.current) return;
+        suppressLayerBroadcastRef.current = true;
+        applySharedLayers(event.data.layers);
+      };
+    }
+
+    // Let a restored state commit before the persistence effect can publish it.
+    const readyFrame = requestAnimationFrame(() => setLayerSyncReady(true));
+    return () => {
+      cancelAnimationFrame(readyFrame);
+      layerChannelRef.current?.close();
+      layerChannelRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!layerSyncReady) return;
+    try {
+      localStorage.setItem(ACTIVE_LAYERS_STORAGE_KEY, JSON.stringify(activeLayers));
+    } catch {
+      // Storage is an optimisation; backend layer sync still works without it.
+    }
+    if (suppressLayerBroadcastRef.current) {
+      suppressLayerBroadcastRef.current = false;
+      return;
+    }
+    layerChannelRef.current?.postMessage({
+      source: layerSyncIdRef.current,
+      layers: activeLayers,
+    });
+  }, [activeLayers, layerSyncReady]);
   const regionLat =
     selectedEntity?.type === 'region_dossier' ? selectedEntity.extra?.lat : undefined;
   const regionLng =
@@ -350,8 +419,8 @@ export default function Dashboard() {
   }, [activeLayers, secondaryBootReady]);
 
   // Left panel accordion state
-  const [leftDataMinimized, setLeftDataMinimized] = useState(false);
-  const [leftMeshExpanded, setLeftMeshExpanded] = useState(true);
+  const [leftDataMinimized, setLeftDataMinimized] = useState(true);
+  const [leftMeshExpanded, setLeftMeshExpanded] = useState(false);
   const [leftShodanMinimized, setLeftShodanMinimized] = useState(true);
 
   const launchMeshChatTab = useCallback(
@@ -506,9 +575,69 @@ export default function Dashboard() {
   // Agent fly_to handler (sar_focus_aoi etc.) — wired here now that
   // setFlyToLocation is in scope.  show_image is routed through
   // useAgentActions at the top of Dashboard.
-  useAgentActions(handleMapRightClick, ({ lat, lng }) => {
-    setFlyToLocation({ lat, lng, ts: Date.now() });
-  }, secondaryBootReady);
+  //
+  // Vergilius: the agent can now also change layer visibility and mark
+  // entities. `layersBeforeAgentRef` holds the operator's own selection from
+  // before the agent first touched anything, so `reset` always restores what
+  // the human chose rather than the app defaults — a conversation must not
+  // permanently rearrange someone's dashboard.
+  const layersBeforeAgentRef = useRef<ActiveLayers | null>(null);
+
+  const handleAgentSetLayers = useCallback(
+    ({ on, off, solo, reset }: { on: string[]; off: string[]; solo: boolean; reset: boolean }) => {
+      setActiveLayers((current) => {
+        if (reset) {
+          const restored = layersBeforeAgentRef.current;
+          layersBeforeAgentRef.current = null;
+          return restored ?? current;
+        }
+        if (!layersBeforeAgentRef.current) layersBeforeAgentRef.current = current;
+
+        const wanted = new Set<string>();
+        on.forEach((n) => AGENT_LAYER_KEYS(n).forEach((k) => wanted.add(k)));
+        const unwanted = new Set<string>();
+        off.forEach((n) => AGENT_LAYER_KEYS(n).forEach((k) => unwanted.add(k)));
+
+        const next: ActiveLayers = { ...current };
+        (Object.keys(next) as (keyof ActiveLayers)[]).forEach((key) => {
+          const k = key as string;
+          if (wanted.has(k)) next[key] = true;
+          else if (unwanted.has(k)) next[key] = false;
+          // "solo" is the interesting one: show what I named, hide the rest.
+          // Base map furniture (day/night, AI pins) is left alone — hiding it
+          // makes the map look broken without telling the user anything.
+          else if (solo && wanted.size > 0 && !AGENT_LAYER_ALWAYS.has(k)) next[key] = false;
+        });
+        return next;
+      });
+    },
+    [],
+  );
+
+  const [agentHighlights, setAgentHighlights] = useState<
+    { id?: string; lat: number; lng: number; label?: string }[]
+  >([]);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleAgentHighlight = useCallback((points: typeof agentHighlights, ttlSeconds: number) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setAgentHighlights(points);
+    if (points.length) {
+      // Transient by design: a highlight is "I am talking about this now", not
+      // a persistent annotation. Pins already cover the persistent case.
+      highlightTimerRef.current = setTimeout(() => setAgentHighlights([]), ttlSeconds * 1000);
+    }
+  }, []);
+
+  useAgentActions(
+    handleMapRightClick,
+    ({ lat, lng }) => {
+      setFlyToLocation({ lat, lng, ts: Date.now() });
+    },
+    secondaryBootReady,
+    handleAgentSetLayers,
+    handleAgentHighlight,
+  );
 
   // Eavesdrop Mode State
   const [isEavesdropping] = useState(false);
@@ -532,6 +661,7 @@ export default function Dashboard() {
             onEntityClick={setSelectedEntity}
             selectedEntity={selectedEntity}
             flyToLocation={flyToLocation}
+            agentHighlights={agentHighlights}
             gibsDate={gibsDate}
             gibsOpacity={gibsOpacity}
             sentinelDate={sentinelDate}
@@ -618,6 +748,11 @@ export default function Dashboard() {
                     <WorldviewLeftPanel
                       activeLayers={activeLayers}
                       setActiveLayers={setActiveLayers}
+                      onApplyPreset={(names) =>
+                        names
+                          ? handleAgentSetLayers({ on: names, off: [], solo: true, reset: false })
+                          : handleAgentSetLayers({ on: [], off: [], solo: false, reset: true })
+                      }
                       shodanResultCount={shodanResults.length}
                       onSettingsClick={() => setSettingsOpen(true)}
                       onLegendClick={() => setLegendOpen(true)}
@@ -650,6 +785,19 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
+
+              {/* 1b. FINANCIAL — map mode preset + Finnhub market wire */}
+              {secondaryBootReady && (
+                <div className="contents" style={{ direction: 'ltr' }}>
+                  <FinancialPanel
+                    onApplyPreset={(names) =>
+                      names
+                        ? handleAgentSetLayers({ on: names, off: [], solo: true, reset: false })
+                        : handleAgentSetLayers({ on: [], off: [], solo: false, reset: true })
+                    }
+                  />
+                </div>
+              )}
 
               {/* 2. MESHTASTIC CHAT (Middle) */}
               {secondaryBootReady && (
@@ -1095,5 +1243,13 @@ export default function Dashboard() {
 
       </main>
     </>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <StartupGate>
+      <DashboardCore />
+    </StartupGate>
   );
 }

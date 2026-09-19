@@ -43,13 +43,28 @@ import collections as _collections
 
 _agent_actions_lock = _actions_threading.Lock()
 _agent_actions: _collections.deque = _collections.deque(maxlen=20)
+_agent_actions_changed = _actions_threading.Condition(_agent_actions_lock)
+_agent_action_replay: _collections.deque = _collections.deque(maxlen=256)
+_agent_action_seq = 0
 
 
-def push_agent_action(action: dict[str, Any]) -> None:
-    """Push an action for the frontend to pick up."""
-    action.setdefault("ts", time.time())
-    with _agent_actions_lock:
-        _agent_actions.append(action)
+def push_agent_action(action: dict[str, Any]) -> int:
+    """Push an action and return its monotonic delivery sequence.
+
+    The original destructive queue remains populated for older frontends. A
+    larger replay buffer lets current frontends keep an independent cursor, so
+    iframe and pop-out views both receive every new action.
+    """
+    global _agent_action_seq
+    next_action = dict(action)
+    next_action.setdefault("ts", time.time())
+    with _agent_actions_changed:
+        _agent_action_seq += 1
+        next_action["seq"] = _agent_action_seq
+        _agent_actions.append(next_action)
+        _agent_action_replay.append(next_action)
+        _agent_actions_changed.notify_all()
+        return _agent_action_seq
 
 
 def pop_agent_actions() -> list[dict[str, Any]]:
@@ -58,6 +73,24 @@ def pop_agent_actions() -> list[dict[str, Any]]:
         actions = list(_agent_actions)
         _agent_actions.clear()
     return actions
+
+
+def wait_agent_actions(after: int, wait_seconds: float) -> tuple[list[dict[str, Any]], int, bool]:
+    """Return actions after a client cursor, optionally waiting for new work."""
+    with _agent_actions_changed:
+        if after < 0:
+            return [], _agent_action_seq, False
+
+        def available() -> bool:
+            return _agent_action_seq > after
+
+        if not available() and wait_seconds > 0:
+            _agent_actions_changed.wait_for(available, timeout=wait_seconds)
+
+        oldest = int(_agent_action_replay[0].get("seq", 0)) if _agent_action_replay else _agent_action_seq
+        replay_reset = bool(_agent_action_replay and after < oldest - 1)
+        actions = [dict(item) for item in _agent_action_replay if int(item.get("seq", 0)) > after]
+        return actions, _agent_action_seq, replay_reset
 
 
 # ---------------------------------------------------------------------------
@@ -387,14 +420,31 @@ async def api_refresh_layer_feed(request: Request, layer_id: str):
 
 @router.get("/api/ai/agent-actions", dependencies=[Depends(require_local_operator)])
 @limiter.limit("120/minute")
-async def get_agent_actions(request: Request):
-    """Frontend polls for pending agent display actions (destructive read).
+async def get_agent_actions(
+    request: Request,
+    after: int | None = Query(None, ge=-1),
+    wait_ms: int = Query(0, ge=0, le=25_000),
+):
+    """Deliver pending display actions.
 
-    Local operator access is required because polling destructively drains
-    the shared operator action queue.
+    Calls without ``after`` retain the legacy destructive behaviour. Cursor-
+    aware clients get independent replay and optional long-polling, eliminating
+    inter-window action theft without breaking old integrations.
     """
-    actions = pop_agent_actions()
-    return {"ok": True, "actions": actions}
+    if after is None:
+        actions = pop_agent_actions()
+        return {"ok": True, "actions": actions}
+    actions, cursor, replay_reset = await asyncio.to_thread(
+        wait_agent_actions,
+        after,
+        wait_ms / 1000.0,
+    )
+    return {
+        "ok": True,
+        "actions": actions,
+        "cursor": cursor,
+        "replay_reset": replay_reset,
+    }
 
 
 # ---------------------------------------------------------------------------

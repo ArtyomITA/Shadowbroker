@@ -45,6 +45,7 @@ import {
   MapPin,
   Truck,
   RefreshCw,
+  TrendingUp,
 } from 'lucide-react';
 import RoadCorridorLayerControls from '@/components/RoadCorridorLayerControls';
 import { API_BASE } from '@/lib/api';
@@ -88,6 +89,7 @@ const FRESHNESS_MAP: Record<string, string> = {
   ships_tracked_yachts: 'ships',
   ukraine_frontline: 'frontlines',
   global_incidents: 'gdelt',
+  finnhub_news: 'finnhub_news',
   cctv: 'cctv',
   gps_jamming: 'commercial_flights',
   kiwisdr: 'kiwisdr',
@@ -193,6 +195,7 @@ const WORLDVIEW_PANEL_DATA_KEYS = [
   'scanners',
   'frontlines',
   'gdelt',
+  'finnhub_news',
   'telegram_osint',
   'crowdthreat',
   'correlations',
@@ -700,6 +703,27 @@ const TOGGLE_ALL_EXCLUDED_LAYERS = new Set<string>([
   'road_corridor_trends',
 ]);
 
+// Mirror of PRESET_MAPPA in odysseus/src/shadowbroker/schemi.py — that file is
+// the source of truth; keep the two in sync by hand. Backend layer names here,
+// translated to toggle keys by the same path the agent channel uses.
+// The financial preset is intentionally NOT here anymore: it moved to the
+// FINANCIAL panel (FinancialPanel.tsx) as the FINANCIAL MAP MODE toggle, with
+// a slimmer layer set (gdelt + news + finnhub_news HQ pins).
+const LAYER_PRESETS: { id: string; label: string; layers: string[] }[] = [
+  {
+    id: 'conflitto',
+    label: 'CONFLICT',
+    layers: ['frontlines', 'military_flights', 'gdelt', 'telegram_osint',
+             'correlations', 'weather_alerts'],
+  },
+  {
+    id: 'infrastruttura',
+    label: 'INFRA',
+    layers: ['power_plants', 'datacenters', 'internet_outages',
+             'sigint', 'military_bases'],
+  },
+];
+
 const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
   activeLayers,
   setActiveLayers,
@@ -725,6 +749,7 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
   isMinimized: isMinimizedProp,
   onMinimizedChange,
   onOpenSarAoiEditor,
+  onApplyPreset,
   viewBoundsRef,
 }: {
   activeLayers: ActiveLayers;
@@ -751,6 +776,7 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
   isMinimized?: boolean;
   onMinimizedChange?: (minimized: boolean) => void;
   onOpenSarAoiEditor?: () => void;
+  onApplyPreset?: (layerNames: string[] | null) => void;
   viewBoundsRef?: React.RefObject<{ south: number; west: number; north: number; east: number } | null>;
 }) {
   const data = useDataKeys(WORLDVIEW_PANEL_DATA_KEYS) as DashboardData;
@@ -1483,6 +1509,15 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
           icon: Activity,
         },
         {
+          // Gold pins at the ticker's company HQ — an approximation the
+          // map popup declares ("HQ: …"). Default OFF (page.tsx).
+          id: 'finnhub_news',
+          name: 'Financial News',
+          source: 'Finnhub · HQ pins',
+          count: (data?.finnhub_news || []).filter((n) => n.lat != null && n.lng != null).length,
+          icon: TrendingUp,
+        },
+        {
           id: 'telegram_osint',
           name: t('layers.telegramOsint'),
           source: 't.me public channels',
@@ -1672,6 +1707,35 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
               className="overflow-y-auto styled-scrollbar"
             >
               <div className="flex flex-col gap-6 p-4 pt-2 pb-6">
+                {/* PRESETS — one click applies a curated layer set ("solo"
+                    semantics: named layers on, the rest off, base furniture
+                    untouched). RESET restores what the operator had before
+                    the first preset/agent touch. */}
+                {onApplyPreset && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)] mr-1">
+                      PRESETS
+                    </span>
+                    {LAYER_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        className="px-2 py-0.5 text-[9px] font-mono tracking-[0.15em] border border-cyan-900/60 text-cyan-400/90 hover:border-cyan-500 hover:text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+                        title={`Show only: ${preset.layers.join(', ')}`}
+                        onClick={() => onApplyPreset(preset.layers)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                    <button
+                      className="px-2 py-0.5 text-[9px] font-mono tracking-[0.15em] border border-[var(--border-primary)]/60 text-[var(--text-muted)] hover:border-slate-400 hover:text-slate-300 transition-colors"
+                      title="Restore the layer selection from before the first preset"
+                      onClick={() => onApplyPreset(null)}
+                    >
+                      RESET
+                    </button>
+                  </div>
+                )}
+
                 {/* SDR TRACKER — pinned to TOP when active, with embedded receiver */}
                 {trackedSdr && (
                   <SdrTracker

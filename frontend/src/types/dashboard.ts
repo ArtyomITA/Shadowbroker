@@ -818,6 +818,24 @@ export interface FimiData {
 
 // ─── ROOT DATA OBJECT ───────────────────────────────────────────────────────
 
+/** Finnhub market news item — slow-tier `finnhub_news` key. */
+export interface FinnhubNewsItem {
+  title: string;
+  source: string;
+  url: string;
+  /** ISO timestamp or epoch (seconds/ms) — treat defensively. */
+  published?: string | number;
+  summary?: string;
+  ticker?: string;
+  /** HQ pin — the ticker's company headquarters, NOT where the event
+   *  happened. Declared approximation; only present when the backend knows
+   *  the ticker's HQ. */
+  lat?: number;
+  lng?: number;
+  /** "City, ST/Country" of the headquarters — shown as "HQ: …" in the popup. */
+  hq?: string;
+}
+
 export interface DashboardData {
   // Metadata
   last_updated?: string | null;
@@ -874,6 +892,7 @@ export interface DashboardData {
     outcomes?: Array<{ name: string; pct: number }>;
   }>;
   news?: NewsArticle[];
+  finnhub_news?: FinnhubNewsItem[];
   stocks?: StocksData;
   oil?: OilData;
   unusual_whales?: {
@@ -1267,6 +1286,7 @@ export interface ActiveLayers {
   cctv: boolean;
   ukraine_frontline: boolean;
   global_incidents: boolean;
+  finnhub_news: boolean;
   day_night: boolean;
   gps_jamming: boolean;
   gibs_imagery: boolean;
@@ -1335,6 +1355,8 @@ export interface MaplibreViewerProps {
   effects?: MapEffects;
   onEntityClick: (entity: SelectedEntity | null) => void;
   flyToLocation: { lat: number; lng: number; zoom?: number; ts?: number } | null;
+  /** Vergilius: transient rings over the entities the assistant is discussing. */
+  agentHighlights?: { id?: string; lat: number; lng: number; label?: string }[];
   selectedEntity: SelectedEntity | null;
   onMouseCoords: (coords: { lat: number; lng: number }) => void;
   onRightClick: (coords: { lat: number; lng: number }) => void;

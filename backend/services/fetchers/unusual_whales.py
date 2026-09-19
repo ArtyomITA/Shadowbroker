@@ -1,7 +1,8 @@
 """Finnhub scheduled fetcher — congress trades, insider transactions, defense quotes.
 
 Runs on a 15-minute schedule and stores results in latest_data["unusual_whales"].
-Also updates latest_data["stocks"] with Finnhub quotes (replaces yfinance for defense tickers).
+Quotes stay inside that layer only — latest_data["stocks"] is owned by the
+per-minute financial sweep (see fetch_financial_markets).
 Falls back gracefully if no API key is configured.
 """
 
@@ -30,15 +31,16 @@ def fetch_unusual_whales():
 
     result: dict = {}
 
-    # Defense stock quotes (also populates latest_data["stocks"])
+    # Defense stock quotes — kept inside the unusual_whales layer payload only.
+    #
+    # NON scrivere latest_data["stocks"] qui: queste sono 8 voci (6 difesa +
+    # 2 cripto) e assegnarle rimpiazzerebbe la mappa da 25 simboli prodotta
+    # dallo spazzolamento al minuto di financial.py, restringendola per ~60s
+    # ogni 15 minuti. Quel layer lo possiede lo sweep finanziario.
     try:
         quotes = fetch_defense_quotes()
         if quotes:
             result["quotes"] = quotes
-            # Mirror into stocks for backward compat with existing MarketsPanel fallback
-            with _data_lock:
-                latest_data["stocks"] = quotes
-            _mark_fresh("stocks")
     except FinnhubConnectorError as e:
         logger.warning(f"Finnhub quotes fetch failed: {e.detail}")
     except Exception as e:

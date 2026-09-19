@@ -8,6 +8,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+// Vergilius: space-separated origins allowed to embed the dashboard in an
+// iframe (Odysseus runs on a different port, so it is a different origin).
+// Empty => 'none', the upstream default. Never use '*' here: frame-ancestors is
+// the only thing standing between this dashboard and a clickjacking overlay,
+// and the operator-trust routes are reachable from inside the frame.
+const FRAME_ANCESTORS = (process.env.SHADOWBROKER_FRAME_ANCESTORS || '').trim();
+
 function buildCsp(nonce: string, strictScripts = false): string {
   const isDev = process.env.NODE_ENV !== 'production';
   const scriptSrc = isDev
@@ -29,7 +36,7 @@ function buildCsp(nonce: string, strictScripts = false): string {
     "child-src 'self' blob:",
     "frame-src 'self' https://video.ibm.com https://ustream.tv https://www.ustream.tv https://t.me",
     "media-src 'self' blob:",
-    "frame-ancestors 'none'",
+    FRAME_ANCESTORS ? `frame-ancestors ${FRAME_ANCESTORS}` : "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
   ];
