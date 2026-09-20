@@ -75,11 +75,54 @@ def pop_agent_actions() -> list[dict[str, Any]]:
     return actions
 
 
-def wait_agent_actions(after: int, wait_seconds: float) -> tuple[list[dict[str, Any]], int, bool]:
-    """Return actions after a client cursor, optionally waiting for new work."""
+# Vergilius (focus a vista appena nata): comandi che cambiano la VISTA e che
+# una finestra appena aperta puo' ancora eseguire con senso. `show_image` resta
+# fuori di proposito: riaprirebbe un pannello immagini gia' chiuso dall'utente.
+_REPLAY_VIEW_ACTIONS = ("fly_to", "set_layers", "highlight")
+
+
+def _recent_view_actions_locked(max_age_seconds: float) -> list[dict[str, Any]]:
+    """Latest view command per type inside a time window, oldest first.
+
+    Vergilius (focus a vista appena nata): the embedded map is born AFTER the
+    model has already moved the view, so with ``after=-1`` it received nothing
+    and stayed where it was. Only the last command of each kind is replayed:
+    a brand-new view catches up, it does not re-run a whole history.
+
+    Caller must already hold ``_agent_actions_lock``.
+    """
+    if max_age_seconds <= 0:
+        return []
+    soglia = time.time() - max_age_seconds
+    ultimi: dict[str, dict[str, Any]] = {}
+    for item in _agent_action_replay:
+        nome = str(item.get("action") or "")
+        if nome not in _REPLAY_VIEW_ACTIONS:
+            continue
+        try:
+            quando = float(item.get("ts") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if quando < soglia:
+            continue
+        ultimi[nome] = item
+    return [dict(x) for x in sorted(ultimi.values(), key=lambda a: int(a.get("seq", 0)))]
+
+
+def wait_agent_actions(
+    after: int,
+    wait_seconds: float,
+    replay_recent_seconds: float = 0.0,
+) -> tuple[list[dict[str, Any]], int, bool]:
+    """Return actions after a client cursor, optionally waiting for new work.
+
+    Vergilius (focus a vista appena nata): ``replay_recent_seconds`` > 0 makes
+    a first call (``after < 0``) also carry the recent view commands. Left at
+    0 the behaviour is exactly the one of before.
+    """
     with _agent_actions_changed:
         if after < 0:
-            return [], _agent_action_seq, False
+            return _recent_view_actions_locked(replay_recent_seconds), _agent_action_seq, False
 
         def available() -> bool:
             return _agent_action_seq > after
@@ -468,12 +511,17 @@ async def get_agent_actions(
     request: Request,
     after: int | None = Query(None, ge=-1),
     wait_ms: int = Query(0, ge=0, le=25_000),
+    replay_recent: int = Query(0, ge=0, le=300),
 ):
     """Deliver pending display actions.
 
     Calls without ``after`` retain the legacy destructive behaviour. Cursor-
     aware clients get independent replay and optional long-polling, eliminating
     inter-window action theft without breaking old integrations.
+
+    Vergilius (focus a vista appena nata): ``replay_recent`` (seconds) lets a
+    brand-new view ask, on its first call, for the recent view commands it was
+    born too late to receive. Omitted, nothing changes.
     """
     if after is None:
         actions = pop_agent_actions()
@@ -482,6 +530,7 @@ async def get_agent_actions(
         wait_agent_actions,
         after,
         wait_ms / 1000.0,
+        float(replay_recent),
     )
     return {
         "ok": True,

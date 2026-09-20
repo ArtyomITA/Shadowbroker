@@ -50,6 +50,11 @@ interface AgentAction {
 
 const LONG_POLL_MS = 20_000;
 const RETRY_MS = 750;
+// Vergilius (focus a vista appena nata): the embedded map is opened BY the
+// very command it should obey, so it is born after that command was pushed.
+// On its first call it asks for the view commands of the last minute and a
+// half (only the newest of each kind) instead of starting deaf to the past.
+const REPLAY_RECENT_S = 90;
 
 /**
  * @param onShowImage — agent wants to display satellite imagery for a point.
@@ -111,6 +116,8 @@ export function useAgentActions(
         after: String(cursorRef.current),
         wait_ms: String(LONG_POLL_MS),
       });
+      // Vergilius (focus a vista appena nata): solo la PRIMA chiamata.
+      if (cursorRef.current < 0) params.set('replay_recent', String(REPLAY_RECENT_S));
       const res = await fetch(`${API_BASE}/api/ai/agent-actions?${params}`, {
         signal,
         cache: 'no-store',

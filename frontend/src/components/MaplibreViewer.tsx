@@ -760,7 +760,11 @@ const MaplibreViewer = ({
   }, [selectedEntity]);
 
   useEffect(() => {
-    if (!flyToLocation || !mapRef.current) return;
+    // Vergilius (focus a vista appena nata): `mapReady` e' nelle dipendenze
+    // apposta. Un comando arrivato mentre la mappa non c'era ancora usciva di
+    // qui e non tornava piu': restava nello stato del genitore senza che
+    // nessuno lo eseguisse. Ora l'effetto riparte quando la mappa e' pronta.
+    if (!flyToLocation || !mapReady || !mapRef.current) return;
     const map = mapRef.current.getMap();
 
     if (flyToLocation.bounds) {
@@ -786,7 +790,7 @@ const MaplibreViewer = ({
       zoom: flyToLocation.zoom ?? 8,
       duration: 1500,
     });
-  }, [flyToLocation]);
+  }, [flyToLocation, mapReady]);
 
   // Vergilius: transient marks on what the assistant is talking about.
   // Deliberately not a data layer — it carries no telemetry of its own, only

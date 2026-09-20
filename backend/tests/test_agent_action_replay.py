@@ -1,3 +1,5 @@
+import time
+
 from routers import ai_intel
 
 
@@ -43,4 +45,37 @@ def test_negative_cursor_starts_at_current_sequence_without_stale_replay():
     assert actions == []
     assert cursor == 1
     assert replay_reset is False
+
+
+# Vergilius (focus a vista appena nata)
+
+def test_replay_recent_gives_a_new_view_the_last_command_of_each_kind():
+    _reset_actions()
+    ai_intel.push_agent_action({"action": "fly_to", "lat": 1, "lng": 2})
+    ai_intel.push_agent_action({"action": "set_layers", "on": ["ships"]})
+    ai_intel.push_agent_action({"action": "fly_to", "lat": 46.48, "lng": 30.73})
+    ai_intel.push_agent_action({"action": "highlight", "points": []})
+    # Fuori elenco: non deve tornare.
+    ai_intel.push_agent_action({"action": "show_image", "lat": 1, "lng": 2})
+
+    actions, cursor, replay_reset = ai_intel.wait_agent_actions(-1, 0, 90.0)
+
+    assert [item["action"] for item in actions] == ["set_layers", "fly_to", "highlight"]
+    assert actions[1]["lat"] == 46.48
+    assert cursor == 5
+    assert replay_reset is False
+
+
+def test_replay_recent_ignores_commands_older_than_the_window():
+    _reset_actions()
+    ai_intel.push_agent_action({"action": "fly_to", "lat": 1, "lng": 2, "ts": time.time() - 600})
+
+    assert ai_intel.wait_agent_actions(-1, 0, 90.0)[0] == []
+
+
+def test_without_the_parameter_nothing_changes():
+    _reset_actions()
+    ai_intel.push_agent_action({"action": "fly_to", "lat": 1, "lng": 2})
+
+    assert ai_intel.wait_agent_actions(-1, 0)[0] == []
 
