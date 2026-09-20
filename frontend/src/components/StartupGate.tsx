@@ -35,7 +35,7 @@ const PROFILES: Array<{
   {
     id: 'vergilius-chat',
     name: 'VERGILIUS CHAT',
-    description: 'La chat completa con Ling, memoria e RAG. Senza ShadowBroker.',
+    description: 'La chat completa con il modello locale, memoria e RAG. Senza ShadowBroker.',
     includes: 'LLM · RAG · memoria · MCP · strumenti',
   },
   {
@@ -62,6 +62,10 @@ export default function StartupGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<StartupStatus | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Primo rendering identico su server e browser (niente errori di idratazione): il gate
+  // decide solo dopo il montaggio, quando `window` esiste davvero.
+  const [montato, setMontato] = useState(false);
+  useEffect(() => { setMontato(true); }, []);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const next = await readStatus(signal);
@@ -135,7 +139,12 @@ export default function StartupGate({ children }: { children: ReactNode }) {
   // incorpora questo pannello, ha gia' il suo indicatore di stato
   // nell'intestazione. Bastava che la chiamata di stato fallisse dentro
   // l'iframe (status nullo) perche' il selettore comparisse sopra la mappa.
-  if (window.self !== window.top) {
+  //
+  // `window` non esiste durante il rendering lato server: letto qui senza guardia faceva
+  // rispondere 500 a TUTTA la dashboard in produzione (`next start`), con
+  // "ReferenceError: window is not defined". Sul server si mostra la pagina: la regia
+  // vera parte comunque nel browser, negli useEffect qui sopra.
+  if (!montato || typeof window === 'undefined' || window.self !== window.top) {
     return children;
   }
   // A finestra intera: se un profilo e' gia' scelto ed e' pronto, si entra.
