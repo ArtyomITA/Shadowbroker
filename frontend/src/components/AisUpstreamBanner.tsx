@@ -37,10 +37,15 @@ export function AisUpstreamBanner({ onOpenApiKeys }: AisUpstreamBannerProps = {}
     : `AISStream is silent (${stalenessLabel}). Add a free AISHub username under Settings → API Keys → Maritime for slow backup ship coverage while AISStream is down.`;
 
   return (
+    // Vergilius (difetto 18): era `fixed top-3 left-1/2 -translate-x-1/2
+    // max-w-[640px]`, cioe' una striscia centrata che nel pannello incorporato
+    // copriva il titolo e le schede di allarme. Ora sta nella colonna unica
+    // degli avvisi (page.tsx) e occupa la sua larghezza. Via anche il
+    // `backdrop-blur`: sfocava la mappa sotto a ogni fotogramma.
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-auto fixed top-3 left-1/2 z-[100] -translate-x-1/2 max-w-[640px] rounded-md border border-amber-500/60 bg-amber-900/85 px-4 py-2 text-sm text-amber-50 shadow-lg backdrop-blur"
+      className="pointer-events-auto w-full rounded-md border border-amber-500/60 bg-amber-900/85 px-4 py-2 text-sm text-amber-50 shadow-lg"
     >
       <div className="flex items-start gap-3">
         <span aria-hidden className="mt-0.5 text-amber-300">⚠</span>

@@ -150,7 +150,9 @@ export default function AlertToast({
     // faceva accavallare, nascondendo la × di quella sotto. Ora impilate con
     // spazio, numero massimo 3, larghezza fissa e testo che va a capo.
     // z-[9500] resta sotto le finestre modali (z-[10000]).
-    <div className="fixed top-16 right-[440px] z-[9500] flex flex-col gap-2 pointer-events-none w-[360px] max-w-[calc(100vw-2rem)]">
+    // Vergilius (difetto 18): la posizione fissa e' passata al contenitore
+    // unico degli avvisi in page.tsx, cosi' l'avviso AIS non ci finisce sopra.
+    <div className="flex w-full flex-col gap-2 pointer-events-none">
       <AnimatePresence>
         {toasts.slice(0, MAX_TOAST_VISIBILI).map((toast) => (
           <ToastCard

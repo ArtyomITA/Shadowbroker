@@ -160,6 +160,14 @@ const VIEWPORT_FAST_REFETCH_DEBOUNCE_MS = 400;
 const VIEWPORT_FAST_REFETCH_MIN_INTERVAL_MS = 2500;
 
 /**
+ * Vergilius (difetto B11): quanto si aspetta prima della PRIMA richiesta al
+ * giro veloce quando `/api/bootstrap/critical` ha gia' portato i dati. Tanto
+ * basta perche' la mappa abbia fissato il riquadro: la richiesta parte
+ * ritagliata sulla vista, non su tutto il pianeta.
+ */
+const FIRST_FAST_AFTER_BOOTSTRAP_MS = 4000;
+
+/**
  * Polls the backend for fast and slow data tiers.
  *
  * Issue #288: heavy, density-driven layers (vessels, aircraft, gdelt
@@ -454,7 +462,20 @@ export function useDataPolling() {
 
     void (async () => {
       await fetchCriticalBootstrap();
-      fetchFastData();
+      // Vergilius (difetto B11): /api/bootstrap/critical porta gia' tutti i
+      // livelli del giro veloce (misurato in iframe: 8,7 MB in 745 ms). Subito
+      // dopo si scaricava /api/live-data/fast?initial=1 con gli stessi dati
+      // (altri 7,5 MB) e 750 ms piu' tardi il giro pieno (13 MB): ~29 MB nei
+      // primi otto secondi, in concorrenza con il guscio che ci incorpora.
+      // Se il primo carico ha dati veri si salta il doppione: la prima
+      // richiesta veloce arriva dopo, quando la mappa ha gia' deciso il
+      // riquadro, e quindi ritagliata sulla vista invece che su tutto il mondo.
+      if (hasData) {
+        fetchedStartupFastPayload = true;
+        fastTimerId = setTimeout(fetchFastData, FIRST_FAST_AFTER_BOOTSTRAP_MS);
+      } else {
+        fetchFastData();
+      }
       // Let the bootstrap/fast payload paint before competing with the slow tier.
       slowTimerId = setTimeout(fetchSlowData, 5000);
     })();

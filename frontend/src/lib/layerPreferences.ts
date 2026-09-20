@@ -95,10 +95,43 @@ export function getDefaultActiveLayers(): ActiveLayers {
 }
 
 const ACTIVE_LAYER_KEYS = Object.keys(getDefaultActiveLayers()) as (keyof ActiveLayers)[];
-const LAYER_BACKEND_SYNC_INTERVAL_MS = 5000;
+// Vergilius (difetto 34): GET /api/layers era interrogato da DUE sorveglianti
+// indipendenti ogni 5 s (questo e il sondaggio degli override in page.tsx),
+// anche a scheda nascosta: oltre 20 richieste al minuto a riposo. Ora la
+// lettura e' una sola, a 10 s, ferma quando il documento non e' visibile, e
+// gli override viaggiano da qui con un evento invece che con un secondo giro.
+const LAYER_BACKEND_SYNC_INTERVAL_MS = 10000;
 let layerBackendSyncTimer: number | null = null;
 let layerBackendSyncInFlight = false;
 let repairedDefaultBackendState = false;
+let layerBackendVisibilityBound = false;
+
+/** Evento con gli override di livello letti dal backend (`{nome: acceso}`). */
+export const LAYER_OVERRIDES_EVENT = 'sb:layer-overrides';
+let lastLayerOverridesJson = '';
+
+/** Ultimi override osservati: chi si aggancia tardi non aspetta il giro dopo. */
+export function getLastLayerOverrides(): Record<string, boolean> {
+  try {
+    return lastLayerOverridesJson ? JSON.parse(lastLayerOverridesJson) : {};
+  } catch {
+    return {};
+  }
+}
+
+function publishLayerOverrides(raw: unknown): void {
+  const overrides =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, boolean>)
+      : {};
+  const json = JSON.stringify(overrides);
+  if (json === lastLayerOverridesJson) return;
+  lastLayerOverridesJson = json;
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent<Record<string, boolean>>(LAYER_OVERRIDES_EVENT, { detail: overrides }),
+  );
+}
 
 function isBooleanRecord(value: unknown): value is Record<string, boolean> {
   if (!value || typeof value !== 'object') return false;
@@ -216,6 +249,11 @@ export async function reconcileActiveLayersWithBackend(): Promise<'synced' | 'no
     if (!response.ok) throw new Error(`layer state probe failed (${response.status})`);
 
     const payload: unknown = await response.json();
+    // Difetto 34: gli override arrivano in QUESTA risposta. Prima page.tsx
+    // rifaceva la stessa GET ogni 5 s solo per leggerli.
+    publishLayerOverrides(
+      payload && typeof payload === 'object' ? (payload as { overrides?: unknown }).overrides : null,
+    );
     const rawLayers =
       payload && typeof payload === 'object' ? (payload as { layers?: unknown }).layers : null;
     if (!isBooleanRecord(rawLayers)) {
@@ -267,8 +305,30 @@ function ensureLayerBackendSync(): void {
 
   void reconcileActiveLayersWithBackend();
   layerBackendSyncTimer = window.setInterval(() => {
+    // Difetto 34: a scheda nascosta (o iframe di una finestra in secondo
+    // piano) nessuno guarda i livelli: il giro si ferma e riparte al ritorno.
+    if (document.visibilityState === 'hidden') return;
     void reconcileActiveLayersWithBackend();
   }, LAYER_BACKEND_SYNC_INTERVAL_MS);
+
+  if (!layerBackendVisibilityBound) {
+    layerBackendVisibilityBound = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        void reconcileActiveLayersWithBackend();
+      }
+    });
+  }
+}
+
+/**
+ * Avvia (una volta sola) il sorvegliante dei livelli lato backend.
+ *
+ * Serve a chi vuole gli override senza aver salvato nessuna preferenza: e' lo
+ * stesso giro di `saveActiveLayers`, non un secondo timer.
+ */
+export function startLayerBackendSync(): void {
+  ensureLayerBackendSync();
 }
 
 export function saveActiveLayers(layers: ActiveLayers): void {

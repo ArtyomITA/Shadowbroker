@@ -39,6 +39,9 @@ import {
   saveActiveFilters,
   saveActiveLayers,
   saveMapStyle,
+  getLastLayerOverrides,
+  startLayerBackendSync,
+  LAYER_OVERRIDES_EVENT,
   type MapStyle,
 } from '@/lib/layerPreferences';
 import type { ShodanSearchMatch } from '@/types/shodan';
@@ -378,24 +381,25 @@ function DashboardCore() {
     };
   }, [activeLayers, secondaryBootReady, layerPrefsHydrated]);
 
-  // Poll for backend layer overrides so an agent can switch an overlay on
-  // without the operator reloading. Overrides carry a TTL server-side, so a
-  // missed poll self-corrects and a dropped backend just lets them lapse.
+  // Backend layer overrides: un agente accende un livello e il cruscotto lo
+  // segue senza che l'operatore ricarichi. Gli override hanno un TTL lato
+  // server, quindi una lettura persa si corregge da sola.
+  //
+  // Vergilius (difetto 34): qui c'era una GET /api/layers ogni 5 s, identica a
+  // quella del sorvegliante in lib/layerPreferences: due giri per lo stesso
+  // dato, oltre 20 richieste al minuto, anche a scheda nascosta. Ora il giro e'
+  // uno solo (10 s, fermo a scheda nascosta) e gli override arrivano da li'.
   useEffect(() => {
     if (!secondaryBootReady) return;
-    let cancelled = false;
-    const pollOverrides = () =>
-      fetch(`${API_BASE}/api/layers`)
-        .then((r) => r.json())
-        .then((d) => {
-          if (!cancelled) setLayerOverrides(d?.overrides ?? {});
-        })
-        .catch(() => {});
-    void pollOverrides();
-    const id = setInterval(pollOverrides, 5000);
+    const onOverrides = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, boolean>>).detail;
+      setLayerOverrides((detail ?? {}) as Partial<ActiveLayers>);
+    };
+    window.addEventListener(LAYER_OVERRIDES_EVENT, onOverrides);
+    setLayerOverrides(getLastLayerOverrides() as Partial<ActiveLayers>);
+    startLayerBackendSync();
     return () => {
-      cancelled = true;
-      clearInterval(id);
+      window.removeEventListener(LAYER_OVERRIDES_EVENT, onOverrides);
     };
   }, [secondaryBootReady]);
 
@@ -1128,17 +1132,25 @@ function DashboardCore() {
         {/* KEYBOARD SHORTCUTS OVERLAY */}
         <KeyboardShortcutsOverlay isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
-        {/* ALERT TOAST NOTIFICATIONS */}
-        <AlertToast
-          toasts={toasts}
-          onDismiss={dismissToast}
-          onFlyTo={handleFlyTo}
-        />
+        {/* AVVISI — Vergilius (difetto 18): schede di allarme e avviso AIS
+            stavano in due posti fissi diversi (colonna a destra e striscia
+            centrata in alto). Nel pannello incorporato (1500x700) la striscia
+            copriva il titolo e le schede: misurato 430..1070 px contro un
+            titolo che arriva a 560 e una colonna di schede che parte da 700.
+            Ora sono UNA colonna sola, sotto l'intestazione, larga quanto
+            serve e che rientra quando la finestra e' stretta. */}
+        <div className="fixed top-24 right-[min(440px,calc(100vw-380px))] z-[9500] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col gap-2 pointer-events-none">
+          <AlertToast
+            toasts={toasts}
+            onDismiss={dismissToast}
+            onFlyTo={handleFlyTo}
+          />
 
-        {/* AIS UPSTREAM OUTAGE BANNER — renders only when AIS is configured
-            but the WebSocket upstream is unreachable. Tells users the empty
-            ocean isn't their fault. */}
-        <AisUpstreamBanner onOpenApiKeys={() => setSettingsOpen(true)} />
+          {/* AIS UPSTREAM OUTAGE BANNER — renders only when AIS is configured
+              but the WebSocket upstream is unreachable. Tells users the empty
+              ocean isn't their fault. */}
+          <AisUpstreamBanner onOpenApiKeys={() => setSettingsOpen(true)} />
+        </div>
 
         {/* ONBOARDING MODAL */}
         {/* Vergilius (difetto 19): incorporata in un iframe dentro Vergilius,

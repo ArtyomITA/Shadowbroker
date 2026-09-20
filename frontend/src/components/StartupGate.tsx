@@ -83,9 +83,20 @@ export default function StartupGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Vergilius (difetto 34): dentro un iframe questo gate restituisce sempre
+    // `children` (vedi piu' sotto), quindi lo stato di avvio non lo guarda
+    // nessuno. Il giro pero' continuava lo stesso: con l'avvio fermo a
+    // `ready:false` erano 25 GET /api/startup/status in 30 s, per niente.
+    if (window.self !== window.top) return;
+
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
+      // Difetto 34: niente giri a scheda nascosta; si riprende al ritorno.
+      if (document.visibilityState === 'hidden') {
+        timer = setTimeout(poll, 2000);
+        return;
+      }
       try {
         const next = await refresh(controller.signal);
         setError('');

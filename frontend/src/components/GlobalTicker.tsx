@@ -43,8 +43,12 @@ export default function GlobalTicker() {
 
 
   return (
+    // Vergilius (prestazioni): via `backdrop-blur-xl`. Il fondo e' opaco al
+    // 95% (sfocatura invisibile) ma dentro scorre un nastro largo 21.000 px
+    // senza mai fermarsi: ogni fotogramma ri-rasterizzava la sfocatura di
+    // tutta la barra.
     <div
-      className="absolute bottom-0 left-0 right-0 h-7 bg-[#0a0a0a]/95 border-t border-cyan-900/40 shadow-[0_-5px_15px_rgba(0,0,0,0.6)] z-[8000] flex items-center overflow-hidden pointer-events-auto backdrop-blur-xl"
+      className="absolute bottom-0 left-0 right-0 h-7 bg-[#0a0a0a]/95 border-t border-cyan-900/40 shadow-[0_-5px_15px_rgba(0,0,0,0.6)] z-[8000] flex items-center overflow-hidden pointer-events-auto"
     >
 
       {fallback && (
