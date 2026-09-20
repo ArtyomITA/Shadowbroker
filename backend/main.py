@@ -12183,6 +12183,16 @@ if __name__ == "__main__":
             _host,
             _port,
         )
+    # Vergilius: senza reload uvicorn su Windows usa il ProactorEventLoop, che su
+    # Python 3.12 CHIUDE il socket in ascolto al primo "Accept failed ... WinError 64"
+    # (un client che si stacca prima dell'accept, es. una sonda di porta mentre il
+    # ciclo e' occupato): il processo resta vivo ma la 8000 non risponde piu'.
+    # Visto il 20 set 2026. Con reload attivo uvicorn sceglieva gia' il Selector:
+    # lo imponiamo noi, cosi' il comportamento resta quello di sempre.
+    if os.name == "nt":
+        import asyncio as _asyncio
+
+        _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
     uvicorn.run(
         "main:app",
         host=_host,
