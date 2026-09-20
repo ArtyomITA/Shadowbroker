@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from '@/lib/motion';
 import type { ToastItem } from '@/hooks/useAlertToasts';
 
 const TOAST_LIFETIME_MS = 5_000;
+// Vergilius (difetto 15): oltre tre schede la colonna copriva i pannelli.
+const MAX_TOAST_VISIBILI = 3;
 
 function getRiskColor(score: number): string {
   if (score >= 9) return '#ef4444';
@@ -57,7 +59,6 @@ function ToastCard({
   return (
     <motion.div
       key={toast.id}
-      layout
       initial={{ opacity: 0, x: 100, scale: 0.9 }}
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: 100, scale: 0.9 }}
@@ -108,14 +109,14 @@ function ToastCard({
 
           {/* Title */}
           <div
-            className="text-[11px] text-[var(--text-primary)] leading-tight mb-1"
-            style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+            className="text-[11px] text-[var(--text-primary)] leading-tight mb-1 break-words"
+            style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
           >
             {toast.title}
           </div>
 
           {/* Source */}
-          <div className="text-[9px] text-[var(--text-muted)] tracking-wider uppercase">
+          <div className="text-[9px] text-[var(--text-muted)] tracking-wider uppercase break-words">
             {toast.source}
           </div>
         </div>
@@ -145,9 +146,13 @@ export default function AlertToast({
   onFlyTo?: (lat: number, lng: number) => void;
 }) {
   return (
-    <div className="fixed top-16 right-[440px] z-[9500] flex flex-col gap-2 pointer-events-none max-w-[380px]">
-      <AnimatePresence mode="popLayout">
-        {toasts.map((toast) => (
+    // Vergilius (difetto 15): `popLayout` toglieva le schede dal flusso e le
+    // faceva accavallare, nascondendo la × di quella sotto. Ora impilate con
+    // spazio, numero massimo 3, larghezza fissa e testo che va a capo.
+    // z-[9500] resta sotto le finestre modali (z-[10000]).
+    <div className="fixed top-16 right-[440px] z-[9500] flex flex-col gap-2 pointer-events-none w-[360px] max-w-[calc(100vw-2rem)]">
+      <AnimatePresence>
+        {toasts.slice(0, MAX_TOAST_VISIBILI).map((toast) => (
           <ToastCard
             key={toast.id}
             toast={toast}

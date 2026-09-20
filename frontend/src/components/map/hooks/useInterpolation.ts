@@ -23,12 +23,31 @@ export function useInterpolation() {
 
   // Update dtSeconds on each tick and bump a lightweight counter so moving
   // markers can advance between backend refreshes.
+  // Vergilius (difetto 27): a scheda nascosta il tick continua a ricostruire i
+  // GeoJSON e a riversarli nella mappa, cioe' a caricare buffer sulla GPU per
+  // nessuno. Con due schede aperte era pressione doppia. Qui si ferma e
+  // riparte al ritorno della scheda.
   useEffect(() => {
-    const iv = setInterval(() => {
-      dtRef.current = (Date.now() - dataTimestamp.current) / 1000;
-      setInterpTick((tick) => tick + 1);
-    }, INTERP_TICK_MS);
-    return () => clearInterval(iv);
+    let iv: ReturnType<typeof setInterval> | null = null;
+    const avvia = () => {
+      if (iv !== null) return;
+      iv = setInterval(() => {
+        dtRef.current = (Date.now() - dataTimestamp.current) / 1000;
+        setInterpTick((tick) => tick + 1);
+      }, INTERP_TICK_MS);
+    };
+    const ferma = () => {
+      if (iv === null) return;
+      clearInterval(iv);
+      iv = null;
+    };
+    const suVisibilita = () => (document.hidden ? ferma() : avvia());
+    document.addEventListener('visibilitychange', suVisibilita);
+    suVisibilita();
+    return () => {
+      document.removeEventListener('visibilitychange', suVisibilita);
+      ferma();
+    };
   }, []);
 
   /** Call this when new data arrives to reset the interpolation baseline */

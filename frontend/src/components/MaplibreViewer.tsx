@@ -1935,6 +1935,10 @@ const MaplibreViewer = ({
       <Map
         ref={mapRef}
         reuseMaps
+        // Vergilius (difetto 27): su schermi HiDPI il canvas WebGL veniva
+        // allocato a 2x, e con due schede aperte Chrome perdeva il contesto.
+        // Un tetto a 1.5 dimezza quasi la memoria GPU senza toccare la resa.
+        pixelRatio={typeof window === 'undefined' ? 1 : Math.min(window.devicePixelRatio || 1, 1.5)}
         maxTileCacheSize={200}
         fadeDuration={0}
         style={{ width: '100%', height: '100%' }}
@@ -2048,7 +2052,11 @@ const MaplibreViewer = ({
           compact
           customAttribution={[
             '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
-            '<a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a>',
+            // Vergilius: il fondo mappa e' CARTO solo se una chiave e'
+            // configurata; senza chiave si usa Esri Canvas (vedi mapStyles.ts).
+            cartoApiKey
+              ? '<a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a>'
+              : '<a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a>, HERE, Garmin',
             '<a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol (ODbL)</a>',
             '<a href="https://opensky-network.org" target="_blank" rel="noopener">OpenSky</a>',
             '<a href="https://celestrak.org" target="_blank" rel="noopener">CelesTrak</a>',

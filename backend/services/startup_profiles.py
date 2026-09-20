@@ -34,6 +34,15 @@ _SELECTED_AT: float | None = None
 _ACTIVATION_THREAD: threading.Thread | None = None
 _PROCESS_ERRORS: dict[str, str] = {}
 
+# Vergilius: memoria dell'ultima risposta BUONA del boot (porta 7001). Il boot
+# a volte risponde in ~1 s e un timeout corto faceva ricadere il gate sullo
+# stato locale "nessun profilo", cioe' sul selettore di profilo gia' superato.
+_BOOT_URL = "http://127.0.0.1:7001"
+_BOOT_CACHE: dict[str, Any] | None = None
+_BOOT_CACHE_AT: float = 0.0
+_BOOT_CACHE_TTL = 15.0
+_BOOT_VISTO = False
+
 
 def _port_open(port: int) -> bool:
     try:
@@ -221,23 +230,54 @@ def _component(component_id: str, label: str, ready: bool, *, detail: str = "") 
 def _stato_dal_boot() -> dict[str, Any] | None:
     """Vergilius Boot (porta 7001) e' ora la regia dei profili: anche quelli
     senza ShadowBroker (vergilius-chat). Se e' su, il suo stato e' la verita';
-    questo backend lo inoltra al gate del frontend senza avviare nulla."""
-    if not _port_open(7001):
+    questo backend lo inoltra al gate del frontend senza avviare nulla.
+
+    Vergilius (difetto 6): timeout generoso, un solo ritentativo e memoria
+    dell'ultima risposta buona. Se il boot e' gia' stato raggiunto almeno una
+    volta, una lettura lenta o fallita restituisce la cache invece di far
+    ricomparire il selettore di profilo. Si ricade sullo stato locale solo se
+    il boot non e' MAI stato raggiunto."""
+    global _BOOT_CACHE, _BOOT_CACHE_AT, _BOOT_VISTO
+    if not _BOOT_VISTO and not _port_open(7001):
         return None
-    try:
-        with urlopen("http://127.0.0.1:7001/api/status", timeout=0.6) as r:
-            d = json.loads(r.read().decode("utf-8"))
-        return d if isinstance(d, dict) else None
-    except Exception:
-        return None
+    with _LOCK:
+        cache_fresca = _BOOT_CACHE is not None and (time.monotonic() - _BOOT_CACHE_AT) <= _BOOT_CACHE_TTL
+    # Con una cache fresca basta un tentativo: il polling non deve bloccarsi 5 s.
+    for tentativo in ((0,) if cache_fresca else (0, 1)):
+        try:
+            with urlopen(f"{_BOOT_URL}/api/status", timeout=2.5) as r:
+                d = json.loads(r.read().decode("utf-8"))
+            if isinstance(d, dict):
+                with _LOCK:
+                    _BOOT_CACHE = d
+                    _BOOT_CACHE_AT = time.monotonic()
+                    _BOOT_VISTO = True
+                return d
+        except Exception:
+            if tentativo == 0:
+                time.sleep(0.2)
+    with _LOCK:
+        cache = _BOOT_CACHE
+        eta = time.monotonic() - _BOOT_CACHE_AT
+    # Entro la finestra breve la cache e' "fresca"; oltre resta comunque
+    # preferibile allo stato locale, che direbbe "nessun profilo".
+    if cache is not None:
+        fuori_finestra = eta > _BOOT_CACHE_TTL
+        risposta = dict(cache)
+        if fuori_finestra:
+            risposta["stale"] = True
+        return risposta
+    return None
 
 
 def startup_status() -> dict[str, Any]:
     dal_boot = _stato_dal_boot()
     if dal_boot is not None:
+        # Il boot e' la regia: il gate non deve mai proporre il selettore.
+        dal_boot["boot_present"] = True
         # Nessun profilo scelto nel boot: il gate di :3000 rimanda a :7001.
         if not dal_boot.get("profile"):
-            dal_boot["target_url"] = "http://127.0.0.1:7001"
+            dal_boot["target_url"] = _BOOT_URL
             dal_boot["phase"] = "choose"
         return dal_boot
     with _LOCK:
@@ -285,6 +325,17 @@ def startup_status() -> dict[str, Any]:
     total = len(components)
     ready = bool(profile) and ready_count == total and not process_errors
     progress = round((ready_count / total) * 100) if total else 0
+    # Vergilius (difetto 7): se esiste un regista di boot (visto almeno una
+    # volta, o in ascolto adesso) e qui non risulta alcun profilo, l'utente va
+    # rimandato al boot :7001, non alla shell :7000. Con :7000 la guardia del
+    # frontend non scattava mai e restava il selettore di profilo.
+    boot_presente = _BOOT_VISTO or _port_open(7001)
+    if not profile and boot_presente:
+        target_url = _BOOT_URL
+    elif profile == PROFILE_SHADOWBROKER:
+        target_url = "http://127.0.0.1:3000"
+    else:
+        target_url = "http://127.0.0.1:7000"
     return {
         "ok": True,
         "boot_id": _BOOT_ID,
@@ -294,5 +345,8 @@ def startup_status() -> dict[str, Any]:
         "progress": progress,
         "ready": ready,
         "components": components,
-        "target_url": "http://127.0.0.1:3000" if profile == PROFILE_SHADOWBROKER else "http://127.0.0.1:7000",
+        "target_url": target_url,
+        # Il gate del frontend usa questo per non mostrare mai il selettore
+        # quando la regia del boot esiste.
+        "boot_present": boot_presente,
     }

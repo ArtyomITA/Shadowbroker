@@ -631,6 +631,12 @@ function DashboardCore() {
   const { showOnboarding, setShowOnboarding } = useOnboarding();
   const { showWarmupNotice, setShowWarmupNotice } = useStartupWarmupNotice();
   const { showChangelog, setShowChangelog } = useChangelog();
+  // Vergilius (difetto 19): `window` solo dentro un effetto — durante il
+  // rendering lato server non esiste.
+  const [incorporato, setIncorporato] = useState(false);
+  useEffect(() => {
+    setIncorporato(window.self !== window.top);
+  }, []);
 
   return (
     <>
@@ -957,7 +963,11 @@ function DashboardCore() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1, duration: 1 }}
-                className="absolute bottom-9 left-1/2 -translate-x-1/2 z-[200] pointer-events-auto flex flex-col items-center gap-2 hud-zone"
+                /* Vergilius (difetto 23): la riga HUD in basso stava a 36px dal
+                   fondo con z-[200], sotto il nastro delle quotazioni
+                   (h-7, z-[8000]): bastava un pixel di sovrapposizione per
+                   sparirci dietro. Ora e' piu' alta e sopra il nastro. */
+                className="absolute bottom-11 left-1/2 -translate-x-1/2 z-[8100] pointer-events-auto flex flex-col items-center gap-2 hud-zone"
               >
                 {/* LOCATE BAR — search by coordinates or place name */}
                 <LocateBar
@@ -1131,7 +1141,11 @@ function DashboardCore() {
         <AisUpstreamBanner onOpenApiKeys={() => setSettingsOpen(true)} />
 
         {/* ONBOARDING MODAL */}
-        {showOnboarding && (
+        {/* Vergilius (difetto 19): incorporata in un iframe dentro Vergilius,
+            la dashboard non apre da sola le finestre di primo avvio (restano
+            raggiungibili dai loro menu). A finestra intera: una alla volta,
+            come gia' fa la catena qui sotto. */}
+        {!incorporato && showOnboarding && (
           <OnboardingModal
             onClose={() => setShowOnboarding(false)}
             onOpenSettings={() => {
@@ -1142,12 +1156,12 @@ function DashboardCore() {
         )}
 
         {/* FIRST-RUN WARMUP NOTICE — shows once after onboarding */}
-        {!showOnboarding && showWarmupNotice && (
+        {!incorporato && !showOnboarding && showWarmupNotice && (
           <StartupWarmupModal onClose={() => setShowWarmupNotice(false)} />
         )}
 
         {/* v0.4 CHANGELOG MODAL — shows once per version after onboarding */}
-        {!showOnboarding && !showWarmupNotice && showChangelog && (
+        {!incorporato && !showOnboarding && !showWarmupNotice && showChangelog && (
           <ChangelogModal onClose={() => setShowChangelog(false)} />
         )}
 

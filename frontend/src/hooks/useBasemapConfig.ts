@@ -13,7 +13,10 @@ export type BasemapConfig = {
 type BasemapConfigResponse = { carto?: { configured?: boolean; key?: string } };
 
 /** Render the unkeyed map if the config has not arrived by then. */
-export const BASEMAP_CONFIG_SOFT_TIMEOUT_MS = 3000;
+// Vergilius (difetto 8): 3 s di pagina nera in attesa di questa risposta,
+// mentre il backend e' ancora in avvio. La chiave, se arriva dopo, ricostruisce
+// comunque lo stile; qui non se ne usa nessuna, quindi l'attesa e' sprecata.
+export const BASEMAP_CONFIG_SOFT_TIMEOUT_MS = 700;
 /** Abort the config request outright after this long. */
 export const BASEMAP_CONFIG_HARD_TIMEOUT_MS = 15000;
 

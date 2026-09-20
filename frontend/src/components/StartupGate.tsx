@@ -18,6 +18,8 @@ type StartupStatus = {
   ready: boolean;
   components: StartupComponent[];
   target_url: string;
+  /** Vergilius: il backend dichiara che la regia del boot (:7001) esiste. */
+  boot_present?: boolean;
 };
 
 const PROFILES: Array<{
@@ -66,10 +68,17 @@ export default function StartupGate({ children }: { children: ReactNode }) {
   // decide solo dopo il montaggio, quando `window` esiste davvero.
   const [montato, setMontato] = useState(false);
   useEffect(() => { setMontato(true); }, []);
+  // Vergilius (difetti 6/7): una volta vista la regia del boot, o un profilo
+  // gia' scelto, il selettore non deve piu' ricomparire per una lettura di
+  // stato lenta o fallita. Si mostra "riconnessione" e basta.
+  const [regiaBoot, setRegiaBoot] = useState(false);
+  const [profiloVisto, setProfiloVisto] = useState(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const next = await readStatus(signal);
     setStatus(next);
+    if (next.boot_present || (next.target_url || '').includes(':7001')) setRegiaBoot(true);
+    if (next.profile) setProfiloVisto(true);
     return next;
   }, []);
 
@@ -158,6 +167,10 @@ export default function StartupGate({ children }: { children: ReactNode }) {
   }
 
   const hasProfile = Boolean(status?.profile);
+  // Il selettore si mostra solo quando questa finestra e' davvero la regia:
+  // nessun boot :7001 in giro, nessun profilo mai visto, stato letto e valido.
+  const mostraSelettore = !hasProfile && !regiaBoot && !profiloVisto && Boolean(status) && !error;
+  const riconnessione = !hasProfile && !mostraSelettore;
   const progress = Math.max(0, Math.min(100, status?.progress || 0));
   const dialStyle = { '--startup-progress': `${progress * 3.6}deg` } as CSSProperties;
 
@@ -169,14 +182,18 @@ export default function StartupGate({ children }: { children: ReactNode }) {
         <div className={styles.veil}>
           <section className={styles.panel} role={hasProfile ? 'status' : 'dialog'} aria-modal="true">
             <div className={styles.eyebrow}>Vergilius boot control</div>
-            <h1 className={styles.title}>{hasProfile ? 'SISTEMI IN AVVIO' : 'SCEGLI IL PROFILO'}</h1>
+            <h1 className={styles.title}>
+              {hasProfile ? 'SISTEMI IN AVVIO' : riconnessione ? 'RICONNESSIONE…' : 'SCEGLI IL PROFILO'}
+            </h1>
             <p className={styles.subtitle}>
               {hasProfile
                 ? 'Ogni indicatore corrisponde a un componente reale. La console resterà protetta finché il profilo non sarà completamente operativo.'
-                : 'La scelta vale per questa accensione. Nessun controllo della console sarà disponibile prima della selezione.'}
+                : riconnessione
+                  ? 'Lettura dello stato di avvio in corso. Il profilo è già stato scelto nel Vergilius Boot: nessuna scelta da rifare qui.'
+                  : 'La scelta vale per questa accensione. Nessun controllo della console sarà disponibile prima della selezione.'}
             </p>
 
-            {!hasProfile ? (
+            {riconnessione ? null : mostraSelettore ? (
               <div className={styles.profiles}>
                 {PROFILES.map((profile) => (
                   <button

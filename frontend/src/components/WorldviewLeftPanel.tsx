@@ -1624,11 +1624,15 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
 
   return (
     <>
+    {/* Vergilius (difetto 13): non piu' `flex-1`. Prendendosi tutta l'altezza
+        della colonna, DATA LAYERS spingeva AI INTEL PANEL sotto lo schermo e
+        la rotella finiva sempre nella lista interna. Ora il pannello ha
+        un'altezza propria e a scorrere e' la colonna. */}
     <motion.div
       initial={{ opacity: 0, x: -50 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 1 }}
-      className={`w-full flex flex-col pointer-events-none ${isMinimized ? 'flex-shrink-0' : 'flex-1 min-h-[300px]'}`}
+      className="w-full flex flex-col pointer-events-none flex-shrink-0"
     >
       {/* Header */}
       <div className="mb-4 pointer-events-auto">
@@ -1682,7 +1686,8 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
       </div>
 
       {/* Data Layers Box */}
-      <div className={`bg-[#0a0a0a]/90 backdrop-blur-sm border border-cyan-900/40 pointer-events-auto flex flex-col relative overflow-hidden max-h-full ${isMinimized ? 'flex-shrink-0' : 'flex-1 min-h-0'}`}>
+      {/* Vergilius (difetto 13): scatola a dimensione propria, non `flex-1`. */}
+      <div className="bg-[#0a0a0a]/90 backdrop-blur-sm border border-cyan-900/40 pointer-events-auto flex flex-col relative overflow-hidden flex-shrink-0">
         {/* Header / Toggle */}
         <div 
           className="flex items-center justify-between px-3 py-2.5 cursor-pointer hover:bg-cyan-950/30 transition-colors border-b border-cyan-900/40"
@@ -1734,12 +1739,14 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
         </div>
 
         <AnimatePresence>
+          {/* Vergilius (difetto 13): tetto d'altezza (max-h-[52vh]) cosi' la
+              lista interna non si mangia tutta la colonna a 1080p e sotto. */}
           {!isMinimized && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-y-auto styled-scrollbar"
+              className="overflow-y-auto styled-scrollbar max-h-[52vh]"
             >
               <div className="flex flex-col gap-6 p-4 pt-2 pb-6">
                 {/* PRESETS — one click applies a curated layer set ("solo"
@@ -1907,15 +1914,16 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
                           >
                             {section.label}
                           </span>
-                          {anyOn && totalCount > 0 && (
-                            <span
-                              className={`text-[12px] font-mono ${
-                                section.layers[0]?.id === 'shodan_overlay' ? 'text-green-500/70' : 'text-cyan-500/50'
-                              }`}
-                            >
-                              {totalCount.toLocaleString()}
-                            </span>
-                          )}
+                          {/* Vergilius (difetto 17): larghezza stabile, cifre
+                              tabellari: il totale cambiava e spostava la
+                              freccia sotto il puntatore. */}
+                          <span
+                            className={`text-[12px] font-mono tabular-nums text-right min-w-[3.25rem] shrink-0 ${
+                              section.layers[0]?.id === 'shodan_overlay' ? 'text-green-500/70' : 'text-cyan-500/50'
+                            }`}
+                          >
+                            {anyOn && totalCount > 0 ? totalCount.toLocaleString() : ''}
+                          </span>
                           {expanded ? (
                             <ChevronUp size={10} className="text-[var(--text-muted)]" />
                           ) : (
@@ -1932,17 +1940,25 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
                                 : 'rgb(100 116 139 / 0.3)',
                           }}
                           onClick={() => {
+                            // Vergilius (difetto 12): era `!allOn`. In una
+                            // sezione mista (SPACE: satelliti accesi, GIBS e
+                            // SENTINEL HUB spenti) `allOn` e' falso, quindi
+                            // l'interruttore "spegni la sezione" ACCENDEVA
+                            // tutto — satelliti compresi, e pure SENTINEL HUB.
+                            // Semantica a tre stati: se qualcosa e' acceso si
+                            // spegne tutto, altrimenti si accende tutto.
+                            const nuovoStato = !anyOn;
                             const toggleSection = () => {
                               setActiveLayers((prev: ActiveLayers) => {
                                 const next = { ...prev } as ActiveLayers;
                                 for (const id of sectionLayerIds as Array<keyof ActiveLayers>) {
-                                  next[id] = !allOn;
+                                  next[id] = nuovoStato;
                                 }
                                 return next;
                               });
                             };
                             if (
-                              !allOn &&
+                              nuovoStato &&
                               (sectionLayerIds as string[]).includes('global_incidents')
                             ) {
                               withGlobalIncidentsConsent('global_incidents', true, toggleSection);
@@ -1951,7 +1967,7 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
                             }
                           }}
                           title={
-                            allOn ? `Disable all ${section.label}` : `Enable all ${section.label}`
+                            anyOn ? `Disable all ${section.label}` : `Enable all ${section.label}`
                           }
                         >
                           <span
@@ -1979,7 +1995,7 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
                             return (
                               <div key={layer.id} className="flex flex-col">
                                 <div
-                                  className="flex items-start justify-between group cursor-pointer"
+                                  className="flex items-start justify-between group cursor-pointer select-none min-h-[34px]"
                                   onClick={() => {
                                     // SAR first-run interception: if the user
                                     // is turning the SAR layer ON for the first
@@ -2064,15 +2080,21 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
                                       </span>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    {active && (layer.count ?? 0) > 0 && (
-                                      <span className="text-[12px] text-gray-300 font-mono">
-                                        {(layer.count ?? 0).toLocaleString()}
-                                      </span>
-                                    )}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {/* Vergilius (difetti 16/17): il contatore
+                                        occupava larghezza variabile e spostava
+                                        la pillola ON/OFF fra mousedown e
+                                        mouseup, mangiandosi il clic. Ora e'
+                                        sempre presente, a cifre tabellari e
+                                        larghezza minima fissa. */}
+                                    <span className="text-[12px] text-gray-300 font-mono tabular-nums text-right min-w-[3.25rem] shrink-0">
+                                      {active && (layer.count ?? 0) > 0
+                                        ? (layer.count ?? 0).toLocaleString()
+                                        : ''}
+                                    </span>
                                     {layer.id !== 'shodan_overlay' && (
                                       <div
-                                        className={`text-[11px] font-mono tracking-wider px-1.5 py-0.5 rounded-full border ${
+                                        className={`text-[11px] font-mono tracking-wider px-1.5 py-0.5 rounded-full border text-center min-w-[3rem] shrink-0 ${
                                           active
                                             ? layer.id === 'shodan_overlay'
                                               ? 'border-green-500/50 text-green-400 bg-green-950/30 shadow-[0_0_10px_rgba(34,197,94,0.2)]'

@@ -162,6 +162,57 @@ def _chiama(percorso: str, parametri: dict):
         return None
 
 
+# Nome dell'azienda per ticker: serve solo a decidere se una notizia restituita
+# da /company-news riguarda davvero quel titolo (vedi _riguarda).
+NOMI_TICKER = {
+    "RTX": ("RTX", "RAYTHEON"), "LMT": ("LOCKHEED",), "NOC": ("NORTHROP",),
+    "GD": ("GENERAL DYNAMICS",), "BA": ("BOEING",), "PLTR": ("PALANTIR",),
+    "LHX": ("L3HARRIS", "L3 HARRIS"), "HII": ("HUNTINGTON INGALLS",),
+    "NVDA": ("NVIDIA",), "AMD": ("ADVANCED MICRO",), "TSM": ("TSMC", "TAIWAN SEMICONDUCTOR"),
+    "INTC": ("INTEL",), "GOOGL": ("GOOGLE", "ALPHABET"), "AMZN": ("AMAZON",),
+    "MSFT": ("MICROSOFT",), "AAPL": ("APPLE",), "TSLA": ("TESLA",),
+    "META": ("META PLATFORMS", "FACEBOOK", "INSTAGRAM"), "NFLX": ("NETFLIX",),
+    "SMCI": ("SUPER MICRO",), "ARM": ("ARM HOLDINGS",), "ASML": ("ASML",),
+    "AVGO": ("BROADCOM",), "QCOM": ("QUALCOMM",), "MU": ("MICRON",),
+    "TXN": ("TEXAS INSTRUMENTS",), "ORCL": ("ORACLE",), "CRM": ("SALESFORCE",),
+    "IBM": ("IBM", "INTERNATIONAL BUSINESS MACHINES"), "ADBE": ("ADOBE",),
+    "JPM": ("JPMORGAN", "JP MORGAN"), "GS": ("GOLDMAN SACHS",), "MS": ("MORGAN STANLEY",),
+    "BAC": ("BANK OF AMERICA",), "WFC": ("WELLS FARGO",), "C": ("CITIGROUP",),
+    "BLK": ("BLACKROCK",), "V": ("VISA",), "MA": ("MASTERCARD",),
+    "XOM": ("EXXON",), "CVX": ("CHEVRON",), "COP": ("CONOCOPHILLIPS",),
+    "SLB": ("SCHLUMBERGER", "SLB"), "OXY": ("OCCIDENTAL",), "CAT": ("CATERPILLAR",),
+    "DE": ("DEERE",), "HON": ("HONEYWELL",), "GE": ("GENERAL ELECTRIC",),
+    "LLY": ("ELI LILLY", "LILLY"), "JNJ": ("JOHNSON & JOHNSON", "JOHNSON AND JOHNSON"),
+    "PFE": ("PFIZER",), "UNH": ("UNITEDHEALTH",), "WMT": ("WALMART",),
+    "KO": ("COCA-COLA", "COCA COLA"), "PEP": ("PEPSICO", "PEPSI"),
+    "NOW": ("SERVICENOW",),
+}
+
+
+def _riguarda(voce: dict, ticker: str) -> bool:
+    """La notizia riguarda davvero quel titolo?
+
+    ``/company-news?symbol=NVDA`` non restituisce solo notizie su NVIDIA: il
+    flusso contiene anche pezzi di mercato generale (la Fed, Oracle, IBM).
+    Marcarli tutti col simbolo della chiamata metteva il badge NVDA su
+    qualunque cosa (difetto 25). Finnhub dichiara i titoli davvero coinvolti in
+    ``related``: e' quello il criterio. Senza ``related`` si ripiega sul testo,
+    che deve nominare il simbolo o l'azienda.
+    """
+    if not ticker:
+        return False
+    simbolo = ticker.upper()
+    grezzo = str(voce.get("related") or "").replace(";", ",")
+    simboli = {s.strip().upper() for s in grezzo.split(",") if s.strip()}
+    if simboli:
+        return simbolo in simboli
+    testo = f"{voce.get('headline') or ''} {voce.get('summary') or ''}".upper()
+    for nome in (simbolo,) + tuple(NOMI_TICKER.get(simbolo, ())):
+        if nome in testo:
+            return True
+    return False
+
+
 def _normalizza(voce: dict, ticker: str | None = None):
     """Riduce una notizia alla forma che usano gli altri layer.
 
@@ -223,7 +274,9 @@ def fetch_finnhub_news():
         for v in voci or []:
             if not isinstance(v, dict):
                 continue
-            pulita = _normalizza(v, ticker)
+            # Il simbolo si attacca solo se la notizia e' davvero di quella
+            # azienda: le notizie di mercato generale restano senza badge.
+            pulita = _normalizza(v, ticker if ticker and _riguarda(v, ticker) else None)
             if not pulita:
                 continue
             # Le notizie di settore ricompaiono su piu' titoli: dedotte per URL,

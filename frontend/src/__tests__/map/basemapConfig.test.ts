@@ -24,14 +24,14 @@ const VIEWER_SRC = fs.readFileSync(
 );
 
 describe('buildBasemapStyle', () => {
-  it('produces unkeyed CARTO tile URLs when no key is given', () => {
+  // Vergilius: senza chiave CARTO timbra "API KEY REQUIRED" su ogni tassello,
+  // quindi il fondo senza chiave e' Esri Canvas (nessun account).
+  it('falls back to keyless Esri Canvas tiles when no key is given', () => {
     const style = buildBasemapStyle('dark');
     const source = style.sources['carto-dark'];
-    expect(source.tiles).toHaveLength(4);
-    for (const url of source.tiles) {
-      expect(url).toMatch(/^https:\/\/[abcd]\.basemaps\.cartocdn\.com\/rastertiles\/dark_all\//);
-      expect(url).not.toContain('?');
-    }
+    expect(source.tiles).toHaveLength(1);
+    expect(source.tiles[0]).toMatch(/^https:\/\/services\.arcgisonline\.com\/ArcGIS\/rest\/services\/Canvas\/World_Dark_Gray_Base\//);
+    expect(source.tiles[0]).not.toContain('?');
     expect(style.layers[0]).toMatchObject({ id: 'carto-dark-layer', source: 'carto-dark' });
   });
 
@@ -52,12 +52,13 @@ describe('buildBasemapStyle', () => {
     expect(lightStyle).toEqual(buildBasemapStyle('light'));
   });
 
-  it('declares OpenStreetMap and CARTO attribution on the raster source, keyed or not', () => {
-    for (const style of [buildBasemapStyle('dark'), buildBasemapStyle('light', 'k')]) {
-      const source = Object.values(style.sources)[0];
-      expect(source.attribution).toContain('openstreetmap.org/copyright');
-      expect(source.attribution).toContain('carto.com/attribution');
-    }
+  it('declares OpenStreetMap plus the tile provider attribution on the raster source', () => {
+    const senza = Object.values(buildBasemapStyle('dark').sources)[0];
+    expect(senza.attribution).toContain('openstreetmap.org/copyright');
+    expect(senza.attribution).toContain('esri.com');
+    const con = Object.values(buildBasemapStyle('light', 'k').sources)[0];
+    expect(con.attribution).toContain('openstreetmap.org/copyright');
+    expect(con.attribution).toContain('carto.com/attribution');
   });
 });
 

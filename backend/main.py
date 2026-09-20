@@ -12187,6 +12187,8 @@ if __name__ == "__main__":
         "main:app",
         host=_host,
         port=_port,
-        reload=True,
+        # Vergilius: il reload raddoppia i processi Python su un PC con poca
+        # RAM. Ora e' opt-in: SHADOWBROKER_RELOAD=1/true/yes/on.
+        reload=os.getenv("SHADOWBROKER_RELOAD", "").strip().lower() in {"1", "true", "yes", "on"},
         timeout_keep_alive=120,
     )

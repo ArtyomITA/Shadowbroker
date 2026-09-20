@@ -24,7 +24,9 @@ import type { FinnhubNewsItem } from '@/types/dashboard';
  */
 const FINANCIAL_LAYERS = ['gdelt', 'news', 'finnhub_news'];
 
-/** Relative "12m ago" time. Accepts ISO strings or epoch seconds/ms. */
+/** Tempo relativo in italiano ("12 min fa"). Accetta ISO o epoch in s/ms.
+ *  Vergilius (difetto 24): questo pannello e' nostro e deve parlare una sola
+ *  lingua; prima mescolava "1h ago" e "sulla mappa". */
 function newsTime(published: string | number | undefined): string {
   if (published === undefined || published === null || published === '') return '';
   let ms: number;
@@ -36,12 +38,12 @@ function newsTime(published: string | number | undefined): string {
   }
   if (!Number.isFinite(ms) || Number.isNaN(ms)) return '';
   const diff = Date.now() - ms;
-  if (diff < 60_000) return 'now';
+  if (diff < 60_000) return 'adesso';
   const min = Math.floor(diff / 60_000);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return `${min} min fa`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
+  if (hr < 24) return `${hr} h fa`;
+  return `${Math.floor(hr / 24)} g fa`;
 }
 
 export default function FinancialPanel({
@@ -106,8 +108,8 @@ export default function FinancialPanel({
                 onClick={toggleMapMode}
                 title={
                   mapMode
-                    ? 'Restore the layer selection from before financial map mode'
-                    : `Show only: ${FINANCIAL_LAYERS.join(', ')}`
+                    ? 'Ripristina i livelli scelti prima della modalità mappa finanziaria'
+                    : `Mostra solo: ${FINANCIAL_LAYERS.join(', ')}`
                 }
               >
                 <span
@@ -127,7 +129,7 @@ export default function FinancialPanel({
               </span>
               {items.length === 0 ? (
                 <div className="text-[10px] font-mono text-[var(--text-muted)]/60 py-2">
-                  waiting for finnhub feed…
+                  in attesa del flusso Finnhub…
                 </div>
               ) : (
                 <div className="max-h-[320px] overflow-y-auto styled-scrollbar flex flex-col gap-2 pr-1">
@@ -150,7 +152,7 @@ export default function FinancialPanel({
                             rel="noopener noreferrer"
                             className="text-[11px] font-mono leading-snug text-[var(--text-primary)] hover:text-cyan-300 transition-colors"
                           >
-                            {item?.title || '(untitled)'}
+                            {item?.title || '(senza titolo)'}
                           </a>
                         </div>
                         <div className="text-[10px] font-mono text-[var(--text-muted)]">
