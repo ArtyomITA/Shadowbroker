@@ -98,7 +98,9 @@ export default function FinancialPanel({
             {/* FINANCIAL MAP MODE — same switch skin as the layer-section toggles */}
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-mono tracking-[0.2em] font-bold text-[var(--text-muted)]">
-                FINANCIAL MAP MODE
+                {/* Vergilius (verifica finale N4): intestazioni in italiano
+                    come il resto del pannello. */}
+                MAPPA FINANZIARIA
               </span>
               <button
                 className="relative w-8 h-4 rounded-full transition-colors shrink-0"
@@ -125,7 +127,7 @@ export default function FinancialPanel({
             {/* FINNHUB NEWS WIRE */}
             <div className="flex flex-col gap-1.5">
               <span className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">
-                MARKET WIRE · FINNHUB
+                NOTIZIE DI MERCATO · FINNHUB
               </span>
               {items.length === 0 ? (
                 <div className="text-[10px] font-mono text-[var(--text-muted)]/60 py-2">

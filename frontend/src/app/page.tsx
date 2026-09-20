@@ -1139,7 +1139,19 @@ function DashboardCore() {
             titolo che arriva a 560 e una colonna di schede che parte da 700.
             Ora sono UNA colonna sola, sotto l'intestazione, larga quanto
             serve e che rientra quando la finestra e' stretta. */}
-        <div className="fixed top-24 right-[min(440px,calc(100vw-380px))] z-[9500] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col gap-2 pointer-events-none">
+        {/* Vergilius (verifica finale N2): `right-[min(440px,calc(100vw-380px))]`
+            teneva conto solo di 380 px, non della colonna sinistra (24 + 320 =
+            344): a 1000, 900 e 820 px vinceva ancora 440 e la colonna degli
+            avvisi cadeva addosso a DATA LAYERS (a 900 px x 100..460 contro
+            24..344, con z 9500 sopra 200).
+            Sopra i 1144 px c'e' spazio fra le due colonne (344 e 100vw-424) e
+            la colonna resta dov'era: `min(440px,calc(100vw-712px))` la tiene
+            sempre a destra di 352 e a sinistra della colonna destra.
+            Sotto, il varco fra le colonne non basta per 360 px: gli avvisi
+            passano a destra ma scendono nella meta' bassa, dove la colonna
+            destra e' vuota, e crescono verso l'alto restando sopra la riga
+            HUD (y 579) e dentro lo schermo. */}
+        <div className="fixed top-24 right-[min(440px,calc(100vw-712px))] max-[1143px]:top-auto max-[1143px]:bottom-[8.5rem] max-[1143px]:right-6 z-[9500] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col gap-2 pointer-events-none">
           <AlertToast
             toasts={toasts}
             onDismiss={dismissToast}

@@ -140,13 +140,18 @@ export function spreadAlertItems(
                 const overlapX = minDistX - adx;
                 const overlapY = minDistY - ady;
                 if (overlapY < overlapX) {
-                  const push = overlapY / 2 + 1;
+                  // Vergilius (verifica finale N8): prima i due riquadri si
+                  // spingevano uno in su e uno in giu'. Il riquadro spinto in
+                  // su finiva sopra il proprio punto e, vicino al bordo alto,
+                  // fuori schermo (misurati y = -38 e y = -42 a 1500x700).
+                  // Ora si sposta solo quello piu' in basso, e solo verso il
+                  // basso: la distanza fra i due e' la stessa, ma nessun
+                  // riquadro sale mai sopra il suo punto.
+                  const push = overlapY + 1;
                   if (a.y + a.offsetY <= b.y + b.offsetY) {
-                    a.offsetY -= push;
                     b.offsetY += push;
                   } else {
                     a.offsetY += push;
-                    b.offsetY -= push;
                   }
                 } else {
                   const push = overlapX / 2 + 1;
@@ -170,7 +175,8 @@ export function spreadAlertItems(
   // Clamp offsets so boxes stay near their origin
   for (const item of items) {
     item.offsetX = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, item.offsetX));
-    item.offsetY = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, item.offsetY));
+    // Mai negativo: il riquadro pende sempre sotto il proprio punto (N8).
+    item.offsetY = Math.max(0, Math.min(MAX_OFFSET, item.offsetY));
   }
 
   return items

@@ -343,7 +343,14 @@ export function ThreatMarkers({
             key={`threat-${alertKey}`}
             longitude={n.coords[1]}
             latitude={n.coords[0]}
-            anchor="center"
+            // Vergilius (verifica finale N8): con `anchor="center"` il fumetto
+            // era centrato sul punto, quindi meta' riquadro stava SOPRA di
+            // esso: per gli allarmi vicini al bordo alto finiva tagliato fuori
+            // (misurati y = -38 e y = -42 a 1500x700). Ancorandolo in alto il
+            // riquadro pende sempre verso il basso e, siccome il punto e'
+            // dentro la vista, resta dentro anche lui. La spaziatura
+            // verticale fra i fumetti la decide sempre `spreadAlertItems`.
+            anchor="top"
             offset={[n.offsetX, n.offsetY]}
             style={{ zIndex: 50 + score }}
             onClick={(e) => {
@@ -357,7 +364,11 @@ export function ThreatMarkers({
                   className="absolute pointer-events-none"
                   style={{
                     left: '50%',
-                    top: '50%',
+                    // Vergilius (N8): con l'ancora in alto il punto della mappa
+                    // sta al centro-alto del riquadro, non al centro: il
+                    // trattino parte da li', altrimenti sbaglia di mezza
+                    // altezza di riquadro.
+                    top: 0,
                     width: 1,
                     height: 1,
                     overflow: 'visible',

@@ -2055,12 +2055,19 @@ const MaplibreViewer = ({
         <AttributionControl
           compact
           customAttribution={[
-            '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
-            // Vergilius: il fondo mappa e' CARTO solo se una chiave e'
-            // configurata; senza chiave si usa Esri Canvas (vedi mapStyles.ts).
+            // Vergilius (verifica finale N1): il fondale sta per primo nella
+            // lista perche' e' la voce obbligatoria. Misurato dal vivo:
+            // MapLibre riordina comunque le voci per conto suo e le stampa in
+            // coda, quindi l'ordine qui non cambia cio' che si vede — il
+            // riquadro le mostra tutte (a capo, niente taglio), e "Esri" e
+            // "© OpenStreetMap contributors" restano leggibili a 1500, 900 e
+            // 820 px. Resta scritto cosi' per intenzione, non per effetto.
+            // Il fondo mappa e' CARTO solo se una chiave e' configurata;
+            // senza chiave si usa Esri Canvas (vedi mapStyles.ts).
             cartoApiKey
               ? '<a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a>'
               : '<a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a>, HERE, Garmin',
+            '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a>',
             '<a href="https://adsb.lol" target="_blank" rel="noopener">adsb.lol (ODbL)</a>',
             '<a href="https://opensky-network.org" target="_blank" rel="noopener">OpenSky</a>',
             '<a href="https://celestrak.org" target="_blank" rel="noopener">CelesTrak</a>',

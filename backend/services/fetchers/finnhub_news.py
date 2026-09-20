@@ -21,6 +21,7 @@ la stessa forma degli altri layer di notizie (titolo, fonte, data, url), piu'
 import json
 import logging
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -189,26 +190,48 @@ NOMI_TICKER = {
 }
 
 
+def _nomina(testo: str, termine: str) -> bool:
+    """``termine`` compare in ``testo`` come parola intera (entrambi maiuscoli)?
+
+    Serve il confine di parola, altrimenti "INTEL" prende "INTELLIGENCE" e
+    "ARM" prende "ARMY". Il confine e' su lettere e cifre soltanto, cosi'
+    ``$NVDA`` e ``NVIDIA'S`` restano riconosciuti.
+    """
+    return re.search(rf"(?<![A-Z0-9]){re.escape(termine)}(?![A-Z0-9])", testo) is not None
+
+
 def _riguarda(voce: dict, ticker: str) -> bool:
     """La notizia riguarda davvero quel titolo?
 
     ``/company-news?symbol=NVDA`` non restituisce solo notizie su NVIDIA: il
     flusso contiene anche pezzi di mercato generale (la Fed, Oracle, IBM).
     Marcarli tutti col simbolo della chiamata metteva il badge NVDA su
-    qualunque cosa (difetto 25). Finnhub dichiara i titoli davvero coinvolti in
-    ``related``: e' quello il criterio. Senza ``related`` si ripiega sul testo,
-    che deve nominare il simbolo o l'azienda.
+    qualunque cosa (difetto 25).
+
+    Vergilius (verifica finale N3): il primo rimedio si fidava del campo
+    ``related``, ma su ``/company-news?symbol=X`` Finnhub ci mette **sempre**
+    X, quindi rispondeva sempre si' e il ripiego sul testo non veniva mai
+    raggiunto ("Berkshire Hathaway...", "Plug Power vs. Bloom Energy...",
+    "These 3 Stocks Will 10x..." tutte marcate NVDA). Su questa rotta
+    ``related`` non porta informazione: si guarda **solo** il testo. Il
+    distintivo si attacca se titolo o sommario nominano il simbolo come
+    parola intera (``NVDA``, ``$NVDA``) o il nome dell'azienda
+    (``NOMI_TICKER``, con le varianti ovvie).
     """
     if not ticker:
         return False
     simbolo = ticker.upper()
-    grezzo = str(voce.get("related") or "").replace(";", ",")
-    simboli = {s.strip().upper() for s in grezzo.split(",") if s.strip()}
-    if simboli:
-        return simbolo in simboli
     testo = f"{voce.get('headline') or ''} {voce.get('summary') or ''}".upper()
-    for nome in (simbolo,) + tuple(NOMI_TICKER.get(simbolo, ())):
-        if nome in testo:
+
+    # Il simbolo nudo vale solo da tre lettere in su: "C" (Citigroup), "V"
+    # (Visa), "BA", "DE", "GS", "KO"... come parole intere compaiono in
+    # qualunque testo inglese e rimetterebbero il distintivo ovunque.
+    if len(simbolo) >= 3 and _nomina(testo, simbolo):
+        return True
+    if _nomina(testo, f"${simbolo}"):
+        return True
+    for nome in NOMI_TICKER.get(simbolo, ()):
+        if _nomina(testo, nome):
             return True
     return False
 

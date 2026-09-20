@@ -276,6 +276,16 @@ export function useDataPolling() {
           scheduleNext('fast', fetchGen);
           return;
         }
+        // Vergilius (verifica finale N6): un 503 (o un 429 del limitatore) che
+        // capita ogni tanto sotto carico non e' un guasto: e' un giro perso.
+        // Si tiene lo stato "connected", non si tocca l'ETag e si riprova al
+        // giro dopo, senza rumore in console. Restava gia' silenzioso per
+        // caso; ora e' scritto, cosi' nessuno lo trasforma in un errore.
+        if (res.status === 503 || res.status === 429) {
+          setStoreBackendStatus('connected');
+          scheduleNext('fast', fetchGen);
+          return;
+        }
         if (res.ok) {
           setStoreBackendStatus('connected');
           // Do not keep the capped startup ETag. The next steady poll should
@@ -327,6 +337,8 @@ export function useDataPolling() {
           },
         );
         if (res.status === 304) { scheduleNext('slow'); return; }
+        // Come sopra (N6): 503/429 sporadici = giro perso, si riprova dopo.
+        if (res.status === 503 || res.status === 429) { scheduleNext('slow'); return; }
         if (res.ok) {
           slowEtag.current = res.headers.get('etag') || null;
           const json = await res.json();

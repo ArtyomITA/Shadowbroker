@@ -1746,9 +1746,14 @@ const WorldviewLeftPanel = React.memo(function WorldviewLeftPanel({
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-y-auto styled-scrollbar max-h-[52vh]"
+              // Vergilius (verifica finale N7): appena compare la barra verticale, i
+              // suoi 10 px mandavano il contenuto oltre il bordo (scrollWidth 292
+              // contro clientWidth 282) e spuntava anche una barra orizzontale.
+              // `overflow-x-hidden` la toglie, `min-w-0` lascia davvero rientrare i
+              // figli flex invece di limitarsi a tagliarli.
+              className="overflow-y-auto overflow-x-hidden styled-scrollbar max-h-[52vh]"
             >
-              <div className="flex flex-col gap-6 p-4 pt-2 pb-6">
+              <div className="flex min-w-0 flex-col gap-6 p-4 pt-2 pb-6">
                 {/* PRESETS — one click applies a curated layer set ("solo"
                     semantics: named layers on, the rest off, base furniture
                     untouched). RESET restores what the operator had before

@@ -165,10 +165,53 @@ textarea:disabled {
   text-transform: uppercase;
 }
 
-/* Hide MapLibre logo & attribution */
-.maplibregl-ctrl-logo,
-.maplibregl-ctrl-attrib {
+/* Hide MapLibre logo (optional) — the attribution is NOT optional. */
+.maplibregl-ctrl-logo {
   display: none !important;
+}
+
+/* Vergilius (verifica finale N1): l'attribuzione era nascosta con
+   `display:none`. Con il fondale Esri (e OpenStreetMap sotto) e' un obbligo
+   di licenza: deve restare leggibile.
+
+   Non puo' stare in basso a destra: quel bordo e' occupato dal nastro delle
+   quotazioni (ultimi 28 px) e dalla riga HUD (y 579..677 a 1500x700), che a
+   900 px larga 871 px copre il fondo per intero. L'angolo in alto a destra e'
+   invece libero a ogni larghezza provata: l'intestazione finisce a x 586 e le
+   due colonne cominciano a y 96. Il riquadro ci sta sopra entrambi i limiti,
+   e la larghezza rientra da sola sotto i 900 px per non toccare il titolo. */
+.maplibregl-ctrl-bottom-right {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  bottom: auto;
+  left: auto;
+  z-index: 8200;
+}
+
+.maplibregl-ctrl-attrib {
+  display: block !important;
+  max-width: clamp(150px, calc(100vw - 630px), 250px);
+  padding: 2px 6px !important;
+  border: 1px solid rgba(120, 200, 220, 0.18);
+  border-radius: 3px;
+  background: rgba(5, 10, 12, 0.72) !important;
+  color: rgba(175, 205, 215, 0.8) !important;
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+}
+
+.maplibregl-ctrl-attrib-inner {
+  display: inline !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: rgba(190, 220, 230, 0.92) !important;
+  text-decoration: none;
+}
+
+.maplibregl-ctrl-attrib a:hover {
+  text-decoration: underline;
 }
 
 /* MapLibre Popup Overrides */

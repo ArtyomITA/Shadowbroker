@@ -281,7 +281,12 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
               ok: false,
               detail: 'Wormhole is enabled but not connected yet. Start Wormhole to use secure DM features.',
             }),
-            { status: 503, headers: { 'Content-Type': 'application/json' } },
+            // Vergilius (N6): timbro anche qui — e' l'unico 503 che il proxy
+            // sa produrre, e deve essere riconoscibile a colpo d'occhio.
+            {
+              status: 503,
+              headers: { 'Content-Type': 'application/json', 'X-SB-Proxy': 'wormhole-not-ready' },
+            },
           );
         }
         targetBase = process.env.WORMHOLE_URL ?? 'http://127.0.0.1:8787';
@@ -381,6 +386,7 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
         status: 502,
         headers: {
           'Content-Type': 'application/json',
+          'X-SB-Proxy': 'route',
           'X-Proxy-Error': fetchError instanceof Error ? fetchError.name : 'fetch_failed',
         },
       });
@@ -395,6 +401,26 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
     if (isSensitiveProxyPath(pathSegments) || isSensitiveMeshPath) {
       Object.entries(NO_STORE_PROXY_HEADERS).forEach(([key, value]) => {
         responseHeaders.set(key, value);
+      });
+    }
+
+    // Vergilius (verifica finale N6): sul cruscotto sono stati visti 5 "503"
+    // su /api/live-data/fast mentre il registro del backend, per la stessa
+    // rotta e la stessa finestra, non ne conta nemmeno uno. Questo gestore
+    // produce 503 solo sul ramo Wormhole (che quella rotta non attraversa) e
+    // nel codice servente di Next il numero 503 non compare affatto
+    // (verificato con grep su next/dist/server e su
+    // next/dist/compiled/next-server/*.runtime.prod.js). Per chiudere la
+    // questione la prossima volta che capita, ogni risposta che esce di qui
+    // porta un timbro: un 503 col timbro e' nostro (o del backend), un 503
+    // senza timbro viene da fuori. E qualunque 5xx del backend finisce nel
+    // registro del frontend con rotta e stato.
+    responseHeaders.set('X-SB-Proxy', 'route');
+    if (upstream.status >= 500) {
+      console.error('api proxy upstream 5xx', {
+        path: `/api/${pathSegments.join('/')}`,
+        status: upstream.status,
+        method: req.method,
       });
     }
 
@@ -423,6 +449,7 @@ async function proxy(req: NextRequest, pathSegments: string[]): Promise<NextResp
         status: 500,
         headers: {
           'Content-Type': 'application/json',
+          'X-SB-Proxy': 'route',
           ...NO_STORE_PROXY_HEADERS,
         },
       },
